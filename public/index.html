@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
   <meta name="theme-color" content="#171717">
   <title>205chating</title>
-  <link rel="stylesheet" href="style.css?v=10">
+  <link rel="stylesheet" href="style.css?v=11">
 </head>
 <body>
 <div id="toast" class="toast"></div>
@@ -30,7 +30,7 @@
         <label><span>Username</span><input id="username" autocomplete="username" placeholder="@username" required></label>
         <label><span data-i18n="auth.phone">Номер телефона</span><input id="phone" inputmode="tel" autocomplete="tel" placeholder="+79991234567" required></label>
         <label><span data-i18n="auth.password">Пароль</span><input id="password" type="password" minlength="6" autocomplete="new-password" placeholder="••••••" required></label>
-        <label class="terms-row"><input id="termsAccept" type="checkbox" required><span>Я принимаю пользовательское соглашение: создатель сервиса не несёт ответственности за действия и содержимое пользователей в чатах. Данные пользователей обрабатываются конфиденциально; для модерации уполномоченные администраторы могут просматривать переписки.</span></label>
+        <label class="terms-row"><input id="termsAccept" type="checkbox" required><span>Я принимаю пользовательское соглашение: создатель сервиса не несёт ответственности за действия и содержимое пользователей в чатах. Данные пользователей обрабатываются в соответствии с правилами сервиса и используются для работы и безопасности 205chating.</span></label>
         <button class="primary wide" data-i18n="auth.submitRegister">Создать аккаунт</button>
       </form>
     </div>
@@ -92,13 +92,13 @@
         <textarea id="messageInput" rows="1" data-i18n-placeholder="chat.message" placeholder="Сообщение"></textarea>
         <div class="record-mode" aria-label="Recording type">
           <button id="modeVoice" class="record-mode-btn active" data-mode="voice" title="Голосовое">🎙</button>
-          <button id="modeVideo" class="record-mode-btn" data-mode="video" title="Видео-квадрат">▣</button>
+          <button id="modeVideo" class="record-mode-btn" data-mode="video" title="Видео-треугольник">▶</button>
         </div>
         <button id="recordBtn" class="icon-btn composer-btn record-main" title="Запись">●</button>
         <button id="send" class="send-btn">➤</button>
       </div>
       <div id="recordingBar" class="recording-bar hidden"><span class="record-dot"></span><span id="recordTime">00:00</span><span id="recordLabel">Запись голосового…</span><button id="cancelRecord" class="text-btn" data-i18n="common.cancel">Отмена</button></div>
-      <div id="videoRecorder" class="video-recorder hidden"><div id="videoSquareFrame" class="video-square-frame"><video id="cameraPreview" autoplay muted playsinline></video></div><div class="video-recorder-info"><span><b>▣</b> Видео-квадрат</span><button id="cancelVideo" class="text-btn" data-i18n="common.cancel">Отмена</button></div></div>
+      <div id="videoRecorder" class="video-recorder hidden"><div id="videoSquareFrame" class="video-square-frame video-triangle-frame"><video id="cameraPreview" autoplay muted playsinline></video></div><div class="video-recorder-info"><span><b>▶</b> Видео-треугольник</span><button id="cancelVideo" class="text-btn" data-i18n="common.cancel">Отмена</button></div></div>
     </div>
   </main>
 </section>
@@ -112,7 +112,7 @@
     <div class="settings-list">
       <div class="setting-row"><div><b data-i18n="settings.theme">Тема</b><span data-i18n="settings.themeHint">Светлая или тёмная</span></div><div class="segmented"><button id="themeDark" data-i18n="settings.dark">Тёмная</button><button id="themeLight" data-i18n="settings.light">Светлая</button></div></div>
       <div class="setting-row"><div><b data-i18n="settings.language">Язык</b><span>Language</span></div><div class="segmented"><button id="langRu">Русский</button><button id="langEn">English</button></div></div>
-      <div class="setting-row"><div><b>Аккаунты</b><span>Добавить ещё один аккаунт</span></div><button id="settingsAddAccount" class="small-primary">+ Добавить аккаунт</button></div>
+      <div class="setting-row"><div><b>Аккаунты</b><span>Добавить ещё один аккаунт</span></div><button id="settingsAddAccount" class="small-primary">+ Добавить аккаунт</button></div><div class="setting-row"><div><b>Номер телефона</b><span>Кто видит номер в вашем профиле</span></div><label class="privacy-switch"><input id="hidePhoneSetting" type="checkbox"><span>Скрыть номер</span></label></div>
       <div class="setting-row support-setting"><div><b>Поддержка</b><span>Проблема, жалоба или вопрос по 205chating</span></div><button id="openSupport" class="small-primary">Обратиться в поддержку</button></div>
       <div class="setting-row berry-setting"><div><b>Баланс</b><span>Клубнички для подарков и NFT</span></div><div class="balance-actions"><div id="settingsBerryBalance" class="berry-balance">0🍓</div><button id="openBalance" class="small-primary">Пополнить</button></div></div>
     </div>
@@ -155,7 +155,7 @@
 <div id="userProfileModal" class="modal hidden"><div class="modal-card profile-card public-profile-card">
   <div class="modal-head"><div><h2>Профиль</h2><p>Пользователь 205chating</p></div><button class="icon-btn modal-close" data-close="userProfileModal">×</button></div>
   <div class="profile-main"><div id="viewUserAvatar" class="avatar avatar-xl">U</div><div class="profile-id"><b id="viewUserName">@user</b><span id="viewUserPhone">+7...</span></div></div>
-  <div class="profile-tabs public-profile-tabs"><button class="active" data-public-tab="main">Профиль</button><button data-public-tab="gifts">Подарки</button></div><div id="publicMainTab" class="profile-tab-panel"><div class="public-bio"><b>О себе</b><p id="viewUserBio">—</p></div></div><div id="publicGiftsTab" class="profile-tab-panel hidden"><div class="gift-profile-section public-gifts-section"><div class="section-title"><b>Подарки</b></div><div id="viewUserGifts" class="profile-gifts profile-gifts-grid"></div></div></div>
+  <div class="public-profile-actions"><button id="writeUserBtn" class="primary">Написать</button><div class="profile-tabs public-profile-tabs"><button class="active" data-public-tab="main">Профиль</button><button data-public-tab="gifts">Подарки</button></div></div><div id="publicMainTab" class="profile-tab-panel"><div class="public-bio"><b>О себе</b><p id="viewUserBio">—</p></div><div id="publicContactActions" class="public-contact-actions"><button id="clearPrivateChat" class="secondary">Очистить весь чат</button><button id="deleteContact" class="danger-button">Удалить контакт</button></div></div><div id="publicGiftsTab" class="profile-tab-panel hidden"><div class="gift-profile-section public-gifts-section"><div class="section-title"><b>Подарки</b></div><div id="viewUserGifts" class="profile-gifts profile-gifts-grid"></div></div></div>
 </div></div>
 
 <div id="channelProfileModal" class="modal hidden"><div class="modal-card profile-card channel-profile-card">
@@ -188,6 +188,6 @@
 </section>
 
 <script src="/socket.io/socket.io.js"></script>
-<script src="app.js?v=10"></script>
+<script src="app.js?v=11"></script>
 </body>
 </html>

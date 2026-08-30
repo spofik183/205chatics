@@ -58,7 +58,7 @@ function loadDb(){
     parsed.channel ||= {name:'205chat',avatarUrl:'',description:'Общий чат 205chating',verified:true};
     parsed.channel.name='205chat'; parsed.channel.verified=true; parsed.channel.avatarUrl ||= ''; parsed.channel.description ||= 'Общий чат 205chating';
     for(const u of parsed.users){
-      u.contacts ||= []; u.avatarUrl ||= ''; u.bio ||= ''; u.online = false; u.strawberries = Math.max(0,Number(u.strawberries)||0); u.featuredGiftId ||= null;
+      u.contacts ||= []; u.avatarUrl ||= ''; u.bio ||= ''; u.hidePhone = !!u.hidePhone; u.online = false; u.strawberries = Math.max(0,Number(u.strawberries)||0); u.featuredGiftId ||= null;
     }
     for(const m of parsed.messages){
       m.chatType ||= 'global'; m.recipientId ||= null; m.viewers ||= []; m.reactions ||= {}; m.hiddenFor ||= []; m.replyTo ||= null; m.pinned = !!m.pinned; m.giftId ||= null;
@@ -84,10 +84,11 @@ function giftSummary(id){
   const r=giftRecord(id); if(!r)return null; const def=giftDef(r.giftKey); if(!def)return null;
   return {id:r.id,giftKey:r.giftKey,name:def.name,image:def.image,price:r.price,type:def.type||'gift',serial:r.serial||null,totalSupply:def.totalSupply||null};
 }
-function cleanUser(u){
-  return {id:u.id,phone:u.phone,username:u.username,avatarUrl:u.avatarUrl||'',bio:u.bio||'',isAdmin:!!u.isAdmin,verified:!!u.verified,online:!!u.online,createdAt:u.createdAt,strawberries:Math.max(0,Number(u.strawberries)||0),featuredGift:giftSummary(u.featuredGiftId)};
+function cleanUser(u,viewer=null){
+  const canSeePhone = !u.hidePhone || viewer?.id===u.id || viewer?.isAdmin;
+  return {id:u.id,phone:canSeePhone?u.phone:'',phoneHidden:!!u.hidePhone,username:u.username,avatarUrl:u.avatarUrl||'',bio:u.bio||'',isAdmin:!!u.isAdmin,verified:!!u.verified,online:!!u.online,createdAt:u.createdAt,strawberries:Math.max(0,Number(u.strawberries)||0),featuredGift:giftSummary(u.featuredGiftId)};
 }
-function adminUser(u){ return {...cleanUser(u),rootAdmin:isRootAdmin(u)}; }
+function adminUser(u){ return {...cleanUser(u,{isAdmin:true}),rootAdmin:isRootAdmin(u)}; }
 
 async function ensureAdmin(){
   let admin=db.users.find(u=>u.phone===ADMIN_PHONE||u.username===ADMIN_USERNAME);
@@ -130,23 +131,24 @@ app.post('/api/register',async(req,res)=>{
   if(db.users.some(u=>u.phone===phone))return res.status(409).json({error:'Этот номер уже зарегистрирован'});
   if(db.users.some(u=>u.username.toLowerCase()===username.toLowerCase()))return res.status(409).json({error:'Этот username уже занят'});
   const u={id:crypto.randomUUID(),phone,username,passwordHash:await bcrypt.hash(password,10),avatarUrl:'',bio:'',isAdmin:false,verified:false,online:false,contacts:[],strawberries:0,featuredGiftId:null,createdAt:new Date().toISOString()};
-  db.users.push(u); saveDb(); io.emit('participants',db.users.length); res.json({token:tokenFor(u),user:cleanUser(u)});
+  db.users.push(u); saveDb(); io.emit('participants',db.users.length); res.json({token:tokenFor(u),user:cleanUser(u,u)});
 });
 app.post('/api/login',async(req,res)=>{
   const login=String(req.body.login||'').trim(), password=String(req.body.password||'');
   const phone=normalizePhone(login), user=normalizeUsername(login).toLowerCase();
   const u=db.users.find(x=>x.phone===phone||x.username.toLowerCase()===user);
   if(!u||!(await bcrypt.compare(password,u.passwordHash)))return res.status(401).json({error:'Неверный логин или пароль'});
-  res.json({token:tokenFor(u),user:cleanUser(u)});
+  res.json({token:tokenFor(u),user:cleanUser(u,u)});
 });
 
-app.get('/api/me',auth,(req,res)=>res.json({user:cleanUser(req.user)}));
+app.get('/api/me',auth,(req,res)=>res.json({user:cleanUser(req.user,req.user)}));
 app.patch('/api/profile',auth,(req,res)=>{
   const username=normalizeUsername(req.body.username);
   if(!/^[\p{L}\p{N}_]{3,24}$/u.test(username))return res.status(400).json({error:'Username: 3–24 символа, буквы, цифры или _'});
   if(db.users.some(u=>u.id!==req.user.id&&u.username.toLowerCase()===username.toLowerCase()))return res.status(409).json({error:'Этот username уже занят'});
   req.user.username=username;
   if(Object.prototype.hasOwnProperty.call(req.body,'bio')) req.user.bio=String(req.body.bio||'').trim().slice(0,200);
+  if(Object.prototype.hasOwnProperty.call(req.body,'hidePhone')) req.user.hidePhone=!!req.body.hidePhone;
   saveDb(); const user=cleanUser(req.user); io.emit('user-updated',user); res.json({user});
 });
 app.post('/api/profile/avatar',auth,upload.single('avatar'),(req,res)=>{
@@ -157,7 +159,7 @@ app.post('/api/profile/avatar',auth,upload.single('avatar'),(req,res)=>{
 app.get('/api/users/:id',auth,(req,res)=>{
   const u=db.users.find(x=>x.id===req.params.id); if(!u)return res.status(404).json({error:'Пользователь не найден'});
   const gifts=db.gifts.filter(g=>g.receiverId===u.id).slice(-24).reverse().map(g=>({...giftSummary(g.id),letter:g.letter||'',createdAt:g.createdAt,sender:cleanUser(db.users.find(x=>x.id===g.senderId)||{id:null,username:'Пользователь',phone:''})}));
-  res.json({user:cleanUser(u),gifts});
+  res.json({user:cleanUser(u,req.user),gifts});
 });
 
 app.get('/api/channel',auth,(req,res)=>res.json({channel:db.channel}));
@@ -194,14 +196,16 @@ app.post('/api/upload',auth,upload.single('file'),(req,res)=>{
 app.get('/api/stats',auth,(_req,res)=>res.json({participants:db.users.length}));
 
 app.get('/api/contacts',auth,(req,res)=>{
-  req.user.contacts||=[]; const list=req.user.contacts.map(id=>db.users.find(u=>u.id===id)).filter(Boolean).map(cleanUser); res.json({contacts:list});
+  req.user.contacts||=[]; const list=req.user.contacts.map(id=>db.users.find(u=>u.id===id)).filter(Boolean).map(u=>cleanUser(u,req.user)); res.json({contacts:list});
 });
 app.post('/api/contacts',auth,(req,res)=>{
   const q=String(req.body.query||'').trim(); const phone=normalizePhone(q), username=normalizeUsername(q).toLowerCase();
   const u=db.users.find(x=>x.id!==req.user.id&&(x.phone===phone||x.username.toLowerCase()===username));
   if(!u)return res.status(404).json({error:'Пользователь не найден'});
-  req.user.contacts||=[]; if(!req.user.contacts.includes(u.id))req.user.contacts.push(u.id); saveDb(); res.json({contact:cleanUser(u)});
+  req.user.contacts||=[]; if(!req.user.contacts.includes(u.id))req.user.contacts.push(u.id); saveDb(); res.json({contact:cleanUser(u,req.user)});
 });
+app.delete('/api/contacts/:id',auth,(req,res)=>{ req.user.contacts=(req.user.contacts||[]).filter(id=>id!==req.params.id); saveDb(); res.json({ok:true}); });
+app.delete('/api/private/:id/messages',auth,(req,res)=>{ const peer=db.users.find(u=>u.id===req.params.id); if(!peer)return res.status(404).json({error:'Пользователь не найден'}); db.messages=db.messages.filter(m=>!((m.chatType||'global')==='private'&&((m.userId===req.user.id&&m.recipientId===peer.id)||(m.userId===peer.id&&m.recipientId===req.user.id)))); saveDb(); io.to(req.user.id).emit('private-chat-cleared',{peerId:peer.id}); io.to(peer.id).emit('private-chat-cleared',{peerId:req.user.id}); res.json({ok:true}); });
 
 function canSeeMessage(m,u){
   if((m.hiddenFor||[]).includes(u.id))return false;
@@ -394,9 +398,9 @@ io.on('connection',socket=>{
   socket.on('view-message',id=>{const m=db.messages.find(x=>x.id===id);if(!m||!canSeeMessage(m,u)||m.userId===u.id)return;m.viewers||=[];if(m.viewers.includes(u.id))return;m.viewers.push(u.id);saveDb();emitToViewers('message-views',m,{id:m.id,views:m.viewers.length});});
   socket.on('react-message',payload=>{const id=payload?.id,emoji=payload?.emoji;const allowed=['❤','👍','😂','💋','👀','🤔','🤢','😎','🤡','💩'];if(!allowed.includes(emoji))return;const m=db.messages.find(x=>x.id===id);if(!m||!canSeeMessage(m,u))return;m.reactions||={};m.reactions[emoji]||=[];const i=m.reactions[emoji].indexOf(u.id);if(i>=0)m.reactions[emoji].splice(i,1);else m.reactions[emoji].push(u.id);saveDb();emitToViewers('message-reactions',m,viewer=>({id:m.id,reactions:serializeMessage(m,viewer).reactions}));});
   socket.on('delete-message-self',id=>{const m=db.messages.find(x=>x.id===id);if(!m||!canSeeMessage(m,u))return;m.hiddenFor||=[];if(!m.hiddenFor.includes(u.id))m.hiddenFor.push(u.id);saveDb();socket.emit('message-hidden',id);});
-  socket.on('delete-message-all',id=>{if(!u.isAdmin)return;const i=db.messages.findIndex(x=>x.id===id);if(i<0)return;db.messages.splice(i,1);saveDb();io.emit('message-deleted',id);});
+  socket.on('delete-message-all',id=>{const i=db.messages.findIndex(x=>x.id===id);if(i<0)return;if(!u.isAdmin&&db.messages[i].userId!==u.id)return;db.messages.splice(i,1);saveDb();io.emit('message-deleted',id);});
   socket.on('pin-message',id=>{if(!u.isAdmin)return;const m=db.messages.find(x=>x.id===id);if(!m||!canSeeMessage(m,u))return;const next=!m.pinned;if(next)for(const other of db.messages)if(other.id!==m.id&&sameConversation(m,other))other.pinned=false;m.pinned=next;saveDb();emitToViewers('pin-changed',m,{id:m.id,pinned:m.pinned});});
   socket.on('disconnect',()=>{const count=Math.max(0,(onlineSockets.get(u.id)||1)-1);if(count)onlineSockets.set(u.id,count);else{onlineSockets.delete(u.id);u.online=false;saveDb();io.emit('presence',{id:u.id,online:false})}});
 });
 
-ensureAdmin().then(()=>server.listen(PORT,'0.0.0.0',()=>console.log(`205chating v10 running on port ${PORT}`)));
+ensureAdmin().then(()=>server.listen(PORT,'0.0.0.0',()=>console.log(`205chating v11 running on port ${PORT}`)));
