@@ -1,16 +1,145 @@
-<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>205chating</title><link rel="stylesheet" href="style.css"><script src="/socket.io/socket.io.js"></script></head><body>
-<div id="auth" class="auth"><form id="authForm" class="auth-card"><div class="brand">205chating</div><h1 id="authTitle">Вход</h1><label>Username / telephone number<input id="login" autocomplete="username" required></label><label id="usernameWrap" class="hidden">Username<input id="username"></label><label>Password<input id="password" type="password" minlength="6" required></label><button class="primary" type="submit">Продолжить</button><button id="toggleAuth" class="link" type="button">Создать аккаунт</button><div id="authError" class="error"></div></form></div>
-<div id="app" class="app hidden">
-<aside class="sidebar"><div class="side-top"><div class="brand small">205chating</div><button id="addContact" class="icon-btn">＋</button></div><button class="chat-item active" data-chat="global"><span class="chat-avatar">205</span><span><b>205chat</b><small id="participants">— участников</small></span></button><div class="section-title">Личные сообщения</div><div id="contacts"></div><div class="side-bottom"><button id="openProfile">Профиль</button><button id="openSettings">Настройки</button><button id="adminBtn" class="hidden">Админ</button></div></aside>
-<main class="chat"><header><button id="mobileBack" class="mobile-only icon-btn">☰</button><div><h2 id="chatTitle">205chat</h2><div id="chatSubtitle">— участников</div></div><div id="typing"></div></header><div id="pinned" class="pinned hidden"></div><section id="messages" class="messages"></section>
-<div id="replyBar" class="reply-bar hidden"><span id="replyText"></span><button id="cancelReply">×</button></div><div id="uploadPreview" class="upload-preview hidden"></div>
-<footer class="composer"><input id="mediaInput" type="file" accept="image/*,video/*" hidden><button id="attachBtn" class="composer-btn">＋</button><textarea id="messageInput" rows="1" placeholder="Сообщение"></textarea><button id="voiceBtn" class="composer-btn mic">🎙</button><button id="send" class="send-btn">➤</button></footer><div id="recordingBar" class="recording hidden"><span id="recordLabel">Запись голосового</span><b id="recordTime">00:00</b><button id="stopRecord">■</button></div><div id="videoPreview" class="video-preview hidden"><video id="videoCam" autoplay muted playsinline></video><div><b id="videoTime">00:00</b><button id="stopVideo">■</button></div></div></main>
-</div>
-<div id="menu" class="menu hidden"></div>
+<!doctype html>
+<html lang="ru" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#171717">
+  <title>205chating</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="toast" class="toast"></div>
+
+<section id="auth" class="auth-page">
+  <div class="auth-shell">
+    <div class="auth-brand">
+      <div class="logo-mark">205</div>
+      <div><h1>205chating</h1><p data-i18n="auth.subtitle">Общий чат без лишнего шума.</p></div>
+    </div>
+    <div class="auth-card">
+      <div class="auth-tabs">
+        <button class="auth-tab active" data-tab="login" data-i18n="auth.login">Вход</button>
+        <button class="auth-tab" data-tab="register" data-i18n="auth.register">Регистрация</button>
+      </div>
+      <form id="loginForm" class="auth-form active">
+        <label><span data-i18n="auth.usernameOrPhone">Username или номер телефона</span><input id="login" autocomplete="username" placeholder="@username / +7..." required></label>
+        <label><span data-i18n="auth.password">Пароль</span><input id="loginPassword" type="password" autocomplete="current-password" placeholder="••••••" required></label>
+        <button class="primary wide" data-i18n="auth.submitLogin">Войти</button>
+      </form>
+      <form id="registerForm" class="auth-form">
+        <label><span>Username</span><input id="username" autocomplete="username" placeholder="@username" required></label>
+        <label><span data-i18n="auth.phone">Номер телефона</span><input id="phone" inputmode="tel" autocomplete="tel" placeholder="+79991234567" required></label>
+        <label><span data-i18n="auth.password">Пароль</span><input id="password" type="password" minlength="6" autocomplete="new-password" placeholder="••••••" required></label>
+        <button class="primary wide" data-i18n="auth.submitRegister">Создать аккаунт</button>
+      </form>
+    </div>
+  </div>
+</section>
+
+<section id="app" class="app hidden">
+  <aside id="sidebar" class="sidebar">
+    <div class="side-top">
+      <button id="openProfile" class="me-button">
+        <div id="meAvatar" class="avatar">205</div>
+        <div class="me-copy"><b id="meName">@user</b><span id="mePhone">+7...</span></div>
+      </button>
+      <button id="openSettings" class="icon-btn" aria-label="Settings">⚙</button>
+    </div>
+
+    <div class="search-box"><span>⌕</span><input data-i18n-placeholder="common.search" placeholder="Поиск" disabled></div>
+
+    <button id="globalChat" class="chat-item active" data-peer="">
+      <div class="avatar room">205</div>
+      <div class="chat-item-copy"><b>205chat</b><span id="lastPreview" data-i18n="chat.global">Общий чат</span></div>
+      <span class="unread-dot"></span>
+    </button>
+
+    <div class="contacts-head">
+      <span data-i18n="contacts.title">Личные сообщения</span>
+      <button id="addContactBtn" class="icon-btn mini" title="Добавить контакт">＋</button>
+    </div>
+    <div id="contactsList" class="contacts-list"></div>
+
+    <div class="side-bottom">
+      <button id="adminBtn" class="plain-button hidden">Admin</button>
+      <button id="logout" class="plain-button danger" data-i18n="common.logout">Выйти</button>
+    </div>
+  </aside>
+
+  <main class="chat-panel">
+    <header class="chat-head">
+      <div class="chat-title-wrap">
+        <button id="mobileChats" class="mobile-menu icon-btn">☰</button>
+        <button id="mobileProfile" class="mobile-avatar avatar">205</button>
+        <div><b id="chatTitle">205chat</b><span id="chatSubtitle">— участников</span></div>
+      </div>
+      <div class="chat-actions"><button id="mobileSettings" class="icon-btn">⚙</button></div>
+    </header>
+
+    <div id="pinnedBar" class="pinned-bar hidden"><span class="pin-icon">⌖</span><div><b data-i18n="chat.pinned">Закреплённое сообщение</b><span id="pinnedText"></span></div></div>
+    <div id="messages" class="messages"></div>
+    <div id="typing" class="typing"></div>
+
+    <div class="composer-area">
+      <div id="replyBar" class="reply-bar hidden"><div><b data-i18n="chat.replying">Ответ</b><span id="replyText"></span></div><button id="cancelReply" class="icon-btn">×</button></div>
+      <div id="uploadPreview" class="upload-preview hidden"></div>
+      <div class="composer">
+        <button id="attachBtn" class="icon-btn composer-btn" title="Attach">＋</button>
+        <input id="mediaInput" type="file" accept="image/*,video/*" hidden>
+        <textarea id="messageInput" rows="1" data-i18n-placeholder="chat.message" placeholder="Сообщение"></textarea>
+        <div class="record-mode" aria-label="Recording type">
+          <button id="modeVoice" class="record-mode-btn active" data-mode="voice" title="Голосовое">🎙</button>
+          <button id="modeVideo" class="record-mode-btn" data-mode="video" title="Видео-квадрат">▣</button>
+        </div>
+        <button id="recordBtn" class="icon-btn composer-btn record-main" title="Запись">●</button>
+        <button id="send" class="send-btn">➤</button>
+      </div>
+      <div id="recordingBar" class="recording-bar hidden"><span class="record-dot"></span><span id="recordTime">00:00</span><span id="recordLabel">Запись голосового…</span><button id="cancelRecord" class="text-btn" data-i18n="common.cancel">Отмена</button></div>
+      <div id="videoRecorder" class="video-recorder hidden"><video id="cameraPreview" autoplay muted playsinline></video><div class="video-recorder-info"><span><b>▣</b> <span id="videoTime">00:00</span> / 00:59</span><button id="cancelVideo" class="text-btn" data-i18n="common.cancel">Отмена</button></div></div>
+    </div>
+  </main>
+</section>
+
+<div id="messageMenu" class="message-menu hidden"></div>
 <div id="reactionPicker" class="reaction-picker hidden"></div>
-<div id="contactModal" class="modal hidden"><div class="modal-card"><h3>Добавить контакт</h3><p>Введите номер телефона или @username</p><input id="contactQuery" placeholder="+7... или @username"><div class="modal-actions"><button data-close="contactModal">Отмена</button><button id="saveContact" class="primary">Добавить</button></div></div></div>
-<div id="profileModal" class="modal hidden"><div class="modal-card"><h3>Профиль</h3><div id="profileAvatar" class="profile-avatar"></div><input id="avatarInput" type="file" accept="image/*"><div id="profilePhone" class="muted"></div><input id="profileUsername"><button id="saveUsername" class="primary">Сохранить username</button><button data-close="profileModal">Закрыть</button></div></div>
-<div id="settingsModal" class="modal hidden"><div class="modal-card"><h3>Настройки</h3><div class="setting-row"><span>Тема</span><button id="toggleTheme">Сменить</button></div><button data-close="settingsModal">Закрыть</button></div></div>
-<div id="adminModal" class="modal hidden"><div class="modal-card wide"><h3>Панель администратора</h3><div id="usersTable"></div><button data-close="adminModal">Закрыть</button></div></div>
-<div id="toast" class="toast hidden"></div>
-<script src="app.js"></script></body></html>
+
+<div id="settingsModal" class="modal hidden"><div class="modal-card small-card">
+  <div class="modal-head"><div><h2 data-i18n="settings.title">Настройки</h2><p data-i18n="settings.subtitle">Внешний вид и язык</p></div><button class="icon-btn modal-close" data-close="settingsModal">×</button></div>
+  <div class="settings-list">
+    <div class="setting-row"><div><b data-i18n="settings.theme">Тема</b><span data-i18n="settings.themeHint">Светлая или тёмная</span></div><div class="segmented"><button id="themeDark" data-i18n="settings.dark">Тёмная</button><button id="themeLight" data-i18n="settings.light">Светлая</button></div></div>
+    <div class="setting-row"><div><b data-i18n="settings.language">Язык</b><span>Language</span></div><div class="segmented"><button id="langRu">Русский</button><button id="langEn">English</button></div></div>
+  </div>
+</div></div>
+
+<div id="profileModal" class="modal hidden"><div class="modal-card profile-card">
+  <div class="modal-head"><div><h2 data-i18n="profile.title">Профиль</h2><p data-i18n="profile.subtitle">Данные аккаунта</p></div><button class="icon-btn modal-close" data-close="profileModal">×</button></div>
+  <div class="profile-main"><button id="avatarButton" class="avatar avatar-xl">205</button><input id="avatarInput" type="file" accept="image/*" hidden><div class="profile-id"><b id="profileName">@user</b><span id="profilePhone">+7...</span></div></div>
+  <div class="profile-form"><label><span>Username</span><div class="input-action"><input id="profileUsername"><button id="saveUsername" class="small-primary" data-i18n="common.save">Сохранить</button></div></label></div>
+  <div class="account-section"><div class="section-title"><b data-i18n="profile.accounts">Аккаунты</b><button id="addAccount" class="text-btn" data-i18n="profile.addAccount">+ Добавить аккаунт</button></div><div id="accountList" class="account-list"></div></div>
+</div></div>
+
+<div id="avatarReview" class="modal hidden"><div class="modal-card photo-review-card">
+  <div class="photo-review-title"><h2 data-i18n="photo.title">Проверь фото</h2><p data-i18n="photo.subtitle">Оно будет отображаться в профиле</p></div>
+  <img id="avatarPreviewImg" class="avatar-preview" alt="Avatar preview"><button id="confirmAvatar" class="primary wide" data-i18n="photo.good">Выглядит хорошо</button><button id="chooseAnotherAvatar" class="secondary wide" data-i18n="photo.new">Выбрать другое фото</button>
+</div></div>
+
+<div id="accountModal" class="modal hidden"><div class="modal-card small-card">
+  <div class="modal-head"><div><h2 data-i18n="profile.addAccount">Добавить аккаунт</h2><p data-i18n="profile.addHint">Войдите в существующий аккаунт</p></div><button class="icon-btn modal-close" data-close="accountModal">×</button></div>
+  <form id="accountLoginForm" class="stack-form"><label><span data-i18n="auth.usernameOrPhone">Username или номер телефона</span><input id="accountLogin" placeholder="@username / +7..." required></label><label><span data-i18n="auth.password">Пароль</span><input id="accountPassword" type="password" placeholder="••••••" required></label><button class="primary wide" data-i18n="auth.submitLogin">Войти</button></form>
+</div></div>
+
+<div id="contactModal" class="modal hidden"><div class="modal-card small-card">
+  <div class="modal-head"><div><h2 data-i18n="contacts.add">Добавить контакт</h2><p data-i18n="contacts.hint">Введите номер телефона или @username</p></div><button class="icon-btn modal-close" data-close="contactModal">×</button></div>
+  <form id="contactForm" class="stack-form"><label><span data-i18n="contacts.query">Номер или username</span><input id="contactQuery" placeholder="+79991234567 / @username" required></label><button class="primary wide" data-i18n="contacts.addButton">Добавить</button></form>
+</div></div>
+
+<div id="adminModal" class="modal hidden"><div class="modal-card admin-card">
+  <div class="modal-head"><div><h2 data-i18n="admin.title">Панель администратора</h2><p data-i18n="admin.subtitle">Пользователи 205chating</p></div><button class="icon-btn modal-close" data-close="adminModal">×</button></div>
+  <div class="notice" data-i18n="admin.passwordNotice">Пароли не отображаются: сервер хранит только защищённые bcrypt-хеши.</div>
+  <div class="table-wrap"><table><thead><tr><th data-i18n="admin.user">Пользователь</th><th data-i18n="admin.phone">Телефон</th><th data-i18n="admin.status">Статус</th><th data-i18n="admin.verified">Галочка</th><th data-i18n="admin.role">Роль</th></tr></thead><tbody id="usersTable"></tbody></table></div>
+</div></div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
