@@ -20,6 +20,7 @@ let recordTimer = null;
 let recordStarted = 0;
 let recordCanceled = false;
 let observer = null;
+let channel = {name:'205chat',avatarUrl:'',description:'Общий чат 205chating',verified:true};
 
 const I18N = {
   ru: {
@@ -87,7 +88,7 @@ $$('.auth-tab').forEach(b=>b.onclick=()=>{
   $$('.auth-form').forEach(x=>x.classList.remove('active'));
   $('#'+b.dataset.tab+'Form').classList.add('active');
 });
-$('#registerForm').onsubmit=async e=>{ e.preventDefault(); try{ const d=await api('/api/register',{method:'POST',body:JSON.stringify({phone:$('#phone').value,username:$('#username').value,password:$('#password').value})}); setSession(d.token,d.user); await startApp(); }catch(err){toast(err.message)} };
+$('#registerForm').onsubmit=async e=>{ e.preventDefault(); try{ const d=await api('/api/register',{method:'POST',body:JSON.stringify({phone:$('#phone').value,username:$('#username').value,password:$('#password').value,acceptedTerms:$('#termsAccept').checked})}); setSession(d.token,d.user); await startApp(); }catch(err){toast(err.message)} };
 $('#loginForm').onsubmit=async e=>{ e.preventDefault(); try{ const d=await api('/api/login',{method:'POST',body:JSON.stringify({login:$('#login').value,password:$('#loginPassword').value})}); setSession(d.token,d.user); await startApp(); }catch(err){toast(err.message)} };
 $('#logout').onclick=clearSession;
 
@@ -98,6 +99,7 @@ function syncMeUI(){
   $('#profileName').innerHTML='@'+escapeHtml(me.username)+badge(me);
   $('#profilePhone').textContent=me.phone;
   $('#profileUsername').value=me.username;
+  $('#profileBio').value=me.bio||''; $('#bioCount').textContent=String((me.bio||'').length);
   setAvatar($('#meAvatar'),me); setAvatar($('#mobileProfile'),me); setAvatar($('#avatarButton'),me);
   $('#adminBtn').classList.toggle('hidden',!me.isAdmin);
   rememberAccount(me,token);
@@ -109,21 +111,24 @@ function updateChatHeader(participantCount){
     $('#chatTitle').innerHTML='@'+escapeHtml(currentPeerUser.username)+badge(currentPeerUser);
     $('#chatSubtitle').textContent=currentPeerUser.online?(lang==='ru'?'онлайн':'online'):(lang==='ru'?'личные сообщения':'direct messages');
   }else{
-    $('#chatTitle').textContent='205chat';
+    $('#chatTitle').innerHTML='205chat <span class="check orange-check">✓</span>';
+    setAvatar($('#chatHeaderAvatar'),{username:'205',avatarUrl:channel.avatarUrl||''});
+    setAvatar($('#channelAvatarSide'),{username:'205',avatarUrl:channel.avatarUrl||''});
     const n=participantCount ?? Number($('#chatSubtitle').dataset.count||0);
     $('#chatSubtitle').dataset.count=n;
     $('#chatSubtitle').textContent=n?`${n} ${lang==='ru'?'участников':'members'}`:(lang==='ru'?'общий чат':'global chat');
   }
 }
 
-async function refreshStats(){ try{const d=await api('/api/stats'); updateChatHeader(d.participants);}catch{} }
+async function refreshStats(){ try{const d=await api('/api/stats'); updateChatHeader(d.participants); $('#channelMembers').textContent=`${d.participants} ${lang==='ru'?'участников':'members'}`;}catch{} }
+async function loadChannel(){ try{const d=await api('/api/channel'); channel=d.channel||channel; $('#channelDescription').value=channel.description||''; updateChatHeader();}catch{} }
 
 function contactRow(u){
   const b=document.createElement('button'); b.className='contact-item'+(currentPeer===u.id?' active':''); b.dataset.peer=u.id;
   const av=document.createElement('div'); av.className='avatar'; setAvatar(av,u);
   const copy=document.createElement('div'); copy.className='contact-copy';
   copy.innerHTML=`<b>@${escapeHtml(u.username)}${badge(u)}</b><span>${u.online?(lang==='ru'?'онлайн':'online'):escapeHtml(u.phone||'')}</span>`;
-  b.append(av,copy); b.onclick=()=>openPeer(u); return b;
+  av.onclick=e=>{e.stopPropagation();openUserProfile(u)}; b.append(av,copy); b.onclick=()=>openPeer(u); return b;
 }
 function renderContacts(){ const box=$('#contactsList'); box.innerHTML=''; contacts.forEach(u=>box.appendChild(contactRow(u))); }
 async function loadContacts(){ try{ const d=await api('/api/contacts'); contacts=d.contacts||[]; if(currentPeer)currentPeerUser=contacts.find(x=>x.id===currentPeer)||currentPeerUser; renderContacts(); updateChatHeader(); }catch(err){toast(err.message)} }
@@ -153,11 +158,12 @@ function renderMessage(m,{append=true}={}){
   const existing=document.querySelector(`.msg[data-id="${CSS.escape(m.id)}"]`);
   if(existing)existing.remove();
   const row=document.createElement('div'); row.className='msg'+(m.mine?' mine':''); row.dataset.id=m.id;
-  const av=document.createElement('div'); av.className='avatar msg-avatar'; setAvatar(av,m.sender);
+  const av=document.createElement('button'); av.className='avatar msg-avatar avatar-button'; setAvatar(av,m.sender); if(m.sender?.id)av.onclick=()=>openUserProfile(m.sender);
   const bubble=document.createElement('div'); bubble.className='bubble';
   const body=mediaMarkup(m)+(m.text?`<div class="text${m.type!=='text'?' caption':''}">${escapeHtml(m.text)}</div>`:'');
-  bubble.innerHTML=`<div class="name">${escapeHtml(m.sender?.username||'Пользователь')}${badge(m.sender)}</div>${replyMarkup(m)}${body}${m.anonymousRealSender?`<div class="anon-real">@${escapeHtml(m.anonymousRealSender.username)} · ${escapeHtml(m.anonymousRealSender.phone)}</div>`:''}${reactionsMarkup(m)}<div class="message-meta"><span>${formatTime(m.createdAt)}</span><span class="message-views"><span class="eye-icon">◉</span><span class="view-count">${m.views||0}</span></span><button class="more-btn" aria-label="More">⋯</button></div>`;
+  bubble.innerHTML=`<button class="name name-button">${escapeHtml(m.sender?.username||'Пользователь')}${badge(m.sender)}</button>${replyMarkup(m)}${body}${m.anonymousRealSender?`<div class="anon-real">@${escapeHtml(m.anonymousRealSender.username)} · ${escapeHtml(m.anonymousRealSender.phone)}</div>`:''}${reactionsMarkup(m)}<div class="message-meta"><span>${formatTime(m.createdAt)}</span><span class="message-views"><span class="eye-icon">◉</span><span class="view-count">${m.views||0}</span></span><button class="more-btn" aria-label="More">⋯</button></div>`;
   bubble.querySelector('.more-btn').onclick=e=>openMessageMenu(e.currentTarget,m);
+  const nameBtn=bubble.querySelector('.name-button'); if(nameBtn&&m.sender?.id)nameBtn.onclick=()=>openUserProfile(m.sender);
   bubble.querySelectorAll('.reaction-chip').forEach(btn=>btn.onclick=()=>socket?.emit('react-message',{id:m.id,emoji:btn.dataset.emoji}));
   row.append(av,bubble);
   if(append)$('#messages').appendChild(row);
@@ -310,15 +316,23 @@ function openModal(id){$('#'+id)?.classList.remove('hidden')}
 function closeModal(id){$('#'+id)?.classList.add('hidden')}
 $$('.modal-close').forEach(b=>b.onclick=()=>closeModal(b.dataset.close));
 $$('.modal').forEach(m=>m.addEventListener('click',e=>{if(e.target===m)m.classList.add('hidden')}));
-$('#openSettings').onclick=$('#mobileSettings').onclick=()=>openModal('settingsModal');
-$('#openProfile').onclick=$('#mobileProfile').onclick=()=>{syncMeUI();openModal('profileModal')};
+function openSettingsPage(){ $('#settingsPage').classList.remove('hidden'); $('#sidebar').classList.remove('mobile-open'); }
+function closeSettingsPage(){ $('#settingsPage').classList.add('hidden'); }
+$('#closeSettingsPage').onclick=closeSettingsPage;
+$('#sideSettings').onclick=openSettingsPage;
+$('#sideProfile').onclick=()=>{syncMeUI();openModal('profileModal');$('#sideMenu').classList.add('hidden')};
+$('#sideAddContact').onclick=()=>{openModal('contactModal');$('#sideMenu').classList.add('hidden')};
+$('#sideMenuBtn').onclick=e=>{e.stopPropagation();$('#sideMenu').classList.toggle('hidden')};
+document.addEventListener('click',e=>{if(!e.target.closest('#sideMenu')&&!e.target.closest('#sideMenuBtn'))$('#sideMenu').classList.add('hidden')});
+$('#mobileProfile').onclick=()=>{syncMeUI();openModal('profileModal')};
 $('#mobileChats').onclick=()=>$('#sidebar').classList.toggle('mobile-open');
 $('#themeDark').onclick=()=>{theme='dark';localStorage.setItem('205theme',theme);applyPrefs()};
 $('#themeLight').onclick=()=>{theme='light';localStorage.setItem('205theme',theme);applyPrefs()};
 $('#langRu').onclick=()=>{lang='ru';localStorage.setItem('205lang',lang);applyPrefs()};
 $('#langEn').onclick=()=>{lang='en';localStorage.setItem('205lang',lang);applyPrefs()};
 
-$('#saveUsername').onclick=async()=>{try{const d=await api('/api/profile',{method:'PATCH',body:JSON.stringify({username:$('#profileUsername').value})});me=d.user;syncMeUI();await loadContacts();toast(lang==='ru'?'Username обновлён':'Username updated')}catch(err){toast(err.message)}};
+$('#saveUsername').onclick=async()=>{try{const d=await api('/api/profile',{method:'PATCH',body:JSON.stringify({username:$('#profileUsername').value,bio:$('#profileBio').value})});me=d.user;syncMeUI();await loadContacts();toast(lang==='ru'?'Username обновлён':'Username updated')}catch(err){toast(err.message)}};
+$('#profileBio').oninput=()=>$('#bioCount').textContent=String($('#profileBio').value.length);
 $('#avatarButton').onclick=()=>$('#avatarInput').click();
 $('#avatarInput').onchange=()=>{const file=$('#avatarInput').files[0];if(!file)return;pendingAvatarFile=file;$('#avatarPreviewImg').src=URL.createObjectURL(file);closeModal('profileModal');openModal('avatarReview')};
 $('#chooseAnotherAvatar').onclick=()=>$('#avatarInput').click();
@@ -333,8 +347,26 @@ async function switchAccount(acc){
   catch{saveAccounts(accounts().filter(x=>x.id!==acc.id));renderAccounts();toast(lang==='ru'?'Сессия аккаунта истекла':'Account session expired')}
 }
 $('#addAccount').onclick=()=>openModal('accountModal');
+$('#settingsAddAccount').onclick=()=>openModal('accountModal');
 $('#accountLoginForm').onsubmit=async e=>{e.preventDefault();const oldToken=token,oldMe=me;try{token=null;const d=await api('/api/login',{method:'POST',body:JSON.stringify({login:$('#accountLogin').value,password:$('#accountPassword').value})});token=oldToken;me=oldMe;rememberAccount(d.user,d.token);closeModal('accountModal');renderAccounts();toast(lang==='ru'?'Аккаунт добавлен':'Account added')}catch(err){token=oldToken;me=oldMe;toast(err.message)}};
 
+
+async function openUserProfile(user){
+  try{
+    const d=user?.id?await api('/api/users/'+encodeURIComponent(user.id)):{user:me}; const u=d.user;
+    setAvatar($('#viewUserAvatar'),u); $('#viewUserName').innerHTML='@'+escapeHtml(u.username)+badge(u); $('#viewUserPhone').textContent=u.phone||''; $('#viewUserBio').textContent=u.bio||'—';
+    openModal('userProfileModal');
+  }catch(err){toast(err.message)}
+}
+async function openChatProfile(){
+  if(currentPeer&&currentPeerUser)return openUserProfile(currentPeerUser);
+  await loadChannel(); $('#channelAdminControls').classList.toggle('hidden',!me?.isAdmin); $('#channelDescription').readOnly=!me?.isAdmin; setAvatar($('#channelAvatarBtn'),{username:'205',avatarUrl:channel.avatarUrl||''}); openModal('channelProfileModal');
+}
+$('#chatProfileOpen').onclick=openChatProfile;
+$('#channelAvatarBtn').onclick=()=>{if(me?.isAdmin)$('#channelAvatarInput').click()};
+$('#channelAvatarInput').onchange=async()=>{const file=$('#channelAvatarInput').files[0];if(!file)return;try{const fd=new FormData();fd.append('avatar',file);const d=await api('/api/channel/avatar',{method:'POST',body:fd});channel=d.channel;await loadChannel();setAvatar($('#channelAvatarBtn'),{username:'205',avatarUrl:channel.avatarUrl||''});toast('Аватар 205chat обновлён')}catch(err){toast(err.message)}};
+$('#saveChannelDescription').onclick=async()=>{try{const d=await api('/api/channel',{method:'PATCH',body:JSON.stringify({description:$('#channelDescription').value})});channel=d.channel;toast('Описание сохранено')}catch(err){toast(err.message)}};
+$('#clearGlobalChat').onclick=async()=>{if(!confirm('Очистить ВСЕ сообщения в 205chat? Личные сообщения останутся.'))return;try{await api('/api/channel/messages',{method:'DELETE'});$('#messages').innerHTML='';closeModal('channelProfileModal');toast('205chat очищен')}catch(err){toast(err.message)}};
 async function openAdmin(){
   try{
     const d=await api('/api/admin/users'); const tb=$('#usersTable'); tb.innerHTML='';
@@ -375,14 +407,16 @@ function connect(){
   });
   socket.on('user-updated',async u=>{ if(u.id===me.id){me={...me,...u};syncMeUI()} contacts=contacts.map(c=>c.id===u.id?{...c,...u}:c); if(currentPeerUser?.id===u.id)currentPeerUser={...currentPeerUser,...u}; renderContacts(); updateChatHeader(); });
   socket.on('presence',x=>{contacts=contacts.map(c=>c.id===x.id?{...c,online:x.online}:c);if(currentPeerUser?.id===x.id)currentPeerUser.online=x.online;renderContacts();updateChatHeader()});
-  socket.on('participants',n=>updateChatHeader(n));
+  socket.on('participants',n=>{updateChatHeader(n);$('#channelMembers').textContent=`${n} ${lang==='ru'?'участников':'members'}`});
+  socket.on('channel-updated',c=>{channel=c||channel;$('#channelDescription').value=channel.description||'';updateChatHeader();setAvatar($('#channelAvatarBtn'),{username:'205',avatarUrl:channel.avatarUrl||''})});
+  socket.on('global-chat-cleared',()=>{if(!currentPeer)$('#messages').innerHTML=''});
 }
 
 async function startApp(){
   try{
     if(!me){const d=await api('/api/me');me=d.user}
     $('#auth').classList.add('hidden'); $('#app').classList.remove('hidden');
-    currentPeer=null; currentPeerUser=null; syncMeUI(); await Promise.all([loadContacts(),refreshStats()]); await loadMessages(); connect();
+    currentPeer=null; currentPeerUser=null; syncMeUI(); await Promise.all([loadContacts(),refreshStats(),loadChannel()]); await loadMessages(); connect();
   }catch(err){console.error(err);localStorage.removeItem('205token');token=null;$('#auth').classList.remove('hidden');$('#app').classList.add('hidden')}
 }
 

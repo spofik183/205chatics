@@ -1,24 +1,22 @@
-# 205chating v4
+# 205chating v5
 
-Стабильная версия на базе UI v2.
+Realtime messenger on Node.js + Express + Socket.IO.
 
-## Что изменено
-- возвращён спокойный UI v2;
-- крупнее сообщения;
-- уникальные просмотры сообщений;
-- меню `⋯`: удалить у себя, ответить, реакция;
-- админ: закрепить, удалить у всех, выдавать/снимать админку;
-- реальное количество участников;
-- личные сообщения через добавление контакта по номеру или @username;
-- фото, видео и голосовые;
-- запись голоса и видео-квадрата выбирается явно кнопками режима, без двойных кликов;
-- видео-квадрат ограничен 59 секундами;
-- настройки темы/языка, профиль, аватар и переключение аккаунтов сохранены.
+## v5
+- registration agreement checkbox
+- channel profile for 205chat with admin avatar/description/chat-clear controls
+- user profiles from chat header and avatars
+- centered square-video recording preview
+- smoother animations and mobile safe-area fixes
+- hamburger account menu
+- full-screen Settings page with Add account
+- orange verification badges
+- user bio up to 200 characters
 
-## Запуск
+## Run
 ```bash
 npm install
 npm start
 ```
 
-Railway: приложение слушает `process.env.PORT` на `0.0.0.0`.
+Railway uses `process.env.PORT`; the server binds to `0.0.0.0`.

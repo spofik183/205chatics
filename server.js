@@ -23,13 +23,15 @@ app.use(express.json({ limit: '2mb' }));
 app.use('/uploads', express.static(UPLOAD_DIR, { maxAge: '1d' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-function defaultDb(){ return { users: [], messages: [] }; }
+function defaultDb(){ return { users: [], messages: [], channel: {name:'205chat',avatarUrl:'',description:'Общий чат 205chating',verified:true} }; }
 function loadDb(){
   try{
     const parsed = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
     parsed.users ||= [];
     parsed.messages ||= [];
-    for(const u of parsed.users){ u.contacts ||= []; u.avatarUrl ||= ''; u.online = false; }
+    parsed.channel ||= {name:'205chat',avatarUrl:'',description:'Общий чат 205chating',verified:true};
+    parsed.channel.name='205chat'; parsed.channel.verified=true; parsed.channel.avatarUrl ||= ''; parsed.channel.description ||= 'Общий чат 205chating';
+    for(const u of parsed.users){ u.contacts ||= []; u.avatarUrl ||= ''; u.bio ||= ''; u.online = false; }
     for(const m of parsed.messages){
       m.chatType ||= 'global';
       m.recipientId ||= null;
@@ -53,7 +55,7 @@ const normalizePhone = phone => String(phone||'').replace(/[^\d+]/g,'');
 const normalizeUsername = username => String(username||'').trim().replace(/^@/,'');
 const isRootAdmin = u => u?.phone === ADMIN_PHONE;
 function cleanUser(u){
-  return {id:u.id,phone:u.phone,username:u.username,avatarUrl:u.avatarUrl||'',isAdmin:!!u.isAdmin,verified:!!u.verified,online:!!u.online,createdAt:u.createdAt};
+  return {id:u.id,phone:u.phone,username:u.username,avatarUrl:u.avatarUrl||'',bio:u.bio||'',isAdmin:!!u.isAdmin,verified:!!u.verified,online:!!u.online,createdAt:u.createdAt};
 }
 function adminUser(u){ return {...cleanUser(u),rootAdmin:isRootAdmin(u)}; }
 
@@ -91,12 +93,13 @@ app.get('/health',(_req,res)=>res.status(200).send('ok'));
 
 app.post('/api/register',async(req,res)=>{
   const phone=normalizePhone(req.body.phone), username=normalizeUsername(req.body.username), password=String(req.body.password||'');
+  if(req.body.acceptedTerms!==true)return res.status(400).json({error:'Нужно принять пользовательское соглашение'});
   if(!/^\+7\d{10}$/.test(phone))return res.status(400).json({error:'Введите номер в формате +7XXXXXXXXXX'});
   if(!/^[\p{L}\p{N}_]{3,24}$/u.test(username))return res.status(400).json({error:'Username: 3–24 символа, буквы, цифры или _'});
   if(password.length<6)return res.status(400).json({error:'Пароль минимум 6 символов'});
   if(db.users.some(u=>u.phone===phone))return res.status(409).json({error:'Этот номер уже зарегистрирован'});
   if(db.users.some(u=>u.username.toLowerCase()===username.toLowerCase()))return res.status(409).json({error:'Этот username уже занят'});
-  const u={id:crypto.randomUUID(),phone,username,passwordHash:await bcrypt.hash(password,10),avatarUrl:'',isAdmin:false,verified:false,online:false,contacts:[],createdAt:new Date().toISOString()};
+  const u={id:crypto.randomUUID(),phone,username,passwordHash:await bcrypt.hash(password,10),avatarUrl:'',bio:'',isAdmin:false,verified:false,online:false,contacts:[],createdAt:new Date().toISOString()};
   db.users.push(u); saveDb(); io.emit('participants',db.users.length); res.json({token:tokenFor(u),user:cleanUser(u)});
 });
 
@@ -113,12 +116,34 @@ app.patch('/api/profile',auth,(req,res)=>{
   const username=normalizeUsername(req.body.username);
   if(!/^[\p{L}\p{N}_]{3,24}$/u.test(username))return res.status(400).json({error:'Username: 3–24 символа, буквы, цифры или _'});
   if(db.users.some(u=>u.id!==req.user.id&&u.username.toLowerCase()===username.toLowerCase()))return res.status(409).json({error:'Этот username уже занят'});
-  req.user.username=username; saveDb(); const user=cleanUser(req.user); io.emit('user-updated',user); res.json({user});
+  req.user.username=username;
+  if(Object.prototype.hasOwnProperty.call(req.body,'bio')) req.user.bio=String(req.body.bio||'').trim().slice(0,200);
+  saveDb(); const user=cleanUser(req.user); io.emit('user-updated',user); res.json({user});
 });
 app.post('/api/profile/avatar',auth,upload.single('avatar'),(req,res)=>{
   if(!req.file)return res.status(400).json({error:'Выберите изображение'});
   if(!req.file.mimetype.startsWith('image/')){fs.unlink(req.file.path,()=>{});return res.status(400).json({error:'Для аватара нужно изображение'})}
   req.user.avatarUrl=`/uploads/${req.file.filename}`; saveDb(); const user=cleanUser(req.user); io.emit('user-updated',user); res.json({user});
+});
+
+
+app.get('/api/users/:id',auth,(req,res)=>{
+  const u=db.users.find(x=>x.id===req.params.id); if(!u)return res.status(404).json({error:'Пользователь не найден'});
+  res.json({user:cleanUser(u)});
+});
+
+app.get('/api/channel',auth,(req,res)=>res.json({channel:db.channel}));
+app.patch('/api/channel',auth,adminOnly,(req,res)=>{
+  if(Object.prototype.hasOwnProperty.call(req.body,'description')) db.channel.description=String(req.body.description||'').trim().slice(0,500);
+  saveDb(); io.emit('channel-updated',db.channel); res.json({channel:db.channel});
+});
+app.post('/api/channel/avatar',auth,adminOnly,upload.single('avatar'),(req,res)=>{
+  if(!req.file)return res.status(400).json({error:'Выберите изображение'});
+  if(!req.file.mimetype.startsWith('image/')){fs.unlink(req.file.path,()=>{});return res.status(400).json({error:'Нужно изображение'})}
+  db.channel.avatarUrl=`/uploads/${req.file.filename}`; saveDb(); io.emit('channel-updated',db.channel); res.json({channel:db.channel});
+});
+app.delete('/api/channel/messages',auth,adminOnly,(req,res)=>{
+  db.messages=db.messages.filter(m=>(m.chatType||'global')==='private'); saveDb(); io.emit('global-chat-cleared'); res.json({ok:true});
 });
 
 app.post('/api/upload',auth,upload.single('file'),(req,res)=>{
@@ -260,4 +285,4 @@ io.on('connection',socket=>{
   });
 });
 
-ensureAdmin().then(()=>server.listen(PORT,'0.0.0.0',()=>console.log(`205chating v4 running on port ${PORT}`)));
+ensureAdmin().then(()=>server.listen(PORT,'0.0.0.0',()=>console.log(`205chating v5 running on port ${PORT}`)));
