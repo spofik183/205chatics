@@ -44,7 +44,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 function defaultDb(){
   return {
     users: [], messages: [], gifts: [], purchases: [], supportThreads: {},
-    giftCatalog: [],
+    giftCatalog: [], maintenanceUntil: null,
     channel: { name:'205chat', avatarUrl:'', description:'Общий чат 205chating', verified:true }
   };
 }
@@ -53,6 +53,7 @@ function loadDb(){
     const parsed = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
     parsed.users ||= []; parsed.messages ||= []; parsed.gifts ||= []; parsed.purchases ||= []; parsed.supportThreads ||= {};
     parsed.giftCatalog ||= [];
+    parsed.maintenanceUntil ||= null;
     // v10: базовых подарков больше нет. Рынок полностью создаёт администратор.
     parsed.giftCatalog = parsed.giftCatalog.filter(g=>!g.seed).map(g=>({id:g.id||crypto.randomUUID(),key:g.key||g.id||crypto.randomUUID(),name:String(g.name||'Подарок'),price:Math.max(1,Math.trunc(Number(g.price)||1)),image:g.image||'',type:g.type==='nft'?'nft':'gift',totalSupply:Math.max(1,Math.trunc(Number(g.totalSupply)||1)),remaining:Math.max(0,Math.trunc(Number(g.remaining ?? g.totalSupply)||0)),createdAt:g.createdAt||new Date().toISOString(),releaseAt:g.releaseAt||null,createdBy:g.createdBy||null}));
     parsed.channel ||= {name:'205chat',avatarUrl:'',description:'Общий чат 205chating',verified:true};
@@ -375,11 +376,30 @@ app.post('/api/strawberries/purchase',auth,(req,res)=>{
 app.post('/api/strawberries/purchase/:id/paid',auth,(req,res)=>{const p=db.purchases.find(x=>x.id===req.params.id&&x.userId===req.user.id);if(!p)return res.status(404).json({error:'Заявка не найдена'});if(p.status!=='pending')return res.status(400).json({error:'Заявка уже обработана'});p.status='paid';p.updatedAt=new Date().toISOString();saveDb();res.json({purchase:p});});
 app.get('/api/strawberries/purchases/mine',auth,(req,res)=>res.json({purchases:db.purchases.filter(p=>p.userId===req.user.id).slice().reverse()}));
 
+// Maintenance
+app.get('/api/maintenance',(_req,res)=>{const until=db.maintenanceUntil&&new Date(db.maintenanceUntil).getTime()>Date.now()?db.maintenanceUntil:null;if(!until&&db.maintenanceUntil){db.maintenanceUntil=null;saveDb();}res.json({active:!!until,until});});
+app.post('/api/admin/maintenance',auth,adminOnly,(req,res)=>{const minutes=Math.trunc(Number(req.body.minutes));if(!Number.isFinite(minutes)||minutes<1)return res.status(400).json({error:'Укажите количество минут больше 0'});db.maintenanceUntil=new Date(Date.now()+minutes*60000).toISOString();saveDb();io.emit('maintenance',{active:true,until:db.maintenanceUntil});res.json({active:true,until:db.maintenanceUntil});});
+app.delete('/api/admin/maintenance',auth,adminOnly,(req,res)=>{db.maintenanceUntil=null;saveDb();io.emit('maintenance',{active:false,until:null});res.json({active:false});});
+
 // Admin
 app.get('/api/admin/users',auth,adminOnly,(req,res)=>res.json({users:db.users.map(adminUser)}));
 app.patch('/api/admin/users/:id/verified',auth,adminOnly,(req,res)=>{const u=db.users.find(x=>x.id===req.params.id);if(!u)return res.status(404).json({error:'Пользователь не найден'});if(isRootAdmin(u))return res.status(400).json({error:'Галочка главного администратора постоянная'});u.verified=!!req.body.verified;saveDb();io.emit('user-updated',cleanUser(u));res.json({user:adminUser(u)});});
 app.patch('/api/admin/users/:id/admin',auth,adminOnly,(req,res)=>{const u=db.users.find(x=>x.id===req.params.id);if(!u)return res.status(404).json({error:'Пользователь не найден'});if(isRootAdmin(u))return res.status(400).json({error:'Нельзя изменить роль главного администратора'});u.isAdmin=!!req.body.isAdmin;if(u.isAdmin)u.verified=true;saveDb();io.emit('user-updated',cleanUser(u));res.json({user:adminUser(u)});});
 app.post('/api/admin/users/:id/strawberries',auth,adminOnly,(req,res)=>{const u=db.users.find(x=>x.id===req.params.id);if(!u)return res.status(404).json({error:'Пользователь не найден'});const amount=Math.trunc(Number(req.body.amount));if(!Number.isFinite(amount)||amount===0)return res.status(400).json({error:'Введите целое количество, кроме 0'});u.strawberries=Math.max(0,(Number(u.strawberries)||0)+amount);saveDb();io.emit('user-updated',cleanUser(u));res.json({user:adminUser(u)});});
+app.delete('/api/admin/users/:id',auth,adminOnly,(req,res)=>{
+  const u=db.users.find(x=>x.id===req.params.id);if(!u)return res.status(404).json({error:'Пользователь не найден'});
+  if(isRootAdmin(u))return res.status(400).json({error:'Нельзя удалить аккаунт главного администратора'});
+  db.users=db.users.filter(x=>x.id!==u.id);
+  db.messages=db.messages.filter(m=>m.userId!==u.id&&m.recipientId!==u.id);
+  db.gifts=db.gifts.filter(g=>g.receiverId!==u.id&&g.senderId!==u.id);
+  db.purchases=db.purchases.filter(p=>p.userId!==u.id);
+  delete db.supportThreads[u.id];
+  for(const x of db.users)x.contacts=(x.contacts||[]).filter(id=>id!==u.id);
+  saveDb();
+  for(const sock of io.sockets.sockets.values())if(sock.user?.id===u.id){sock.emit('account-deleted');sock.disconnect(true);}
+  io.emit('participants',db.users.length);
+  res.json({ok:true});
+});
 app.get('/api/admin/users/search',auth,adminOnly,(req,res)=>{
   const q=String(req.query.q||'').trim().toLowerCase(); const phone=normalizePhone(q);
   const users=db.users.filter(u=>!q||u.username.toLowerCase().includes(q.replace(/^@/,''))||u.phone.includes(phone||q)).map(adminUser);
@@ -428,4 +448,4 @@ io.on('connection',socket=>{
   socket.on('disconnect',()=>{const count=Math.max(0,(onlineSockets.get(u.id)||1)-1);if(count)onlineSockets.set(u.id,count);else{onlineSockets.delete(u.id);u.online=false;saveDb();io.emit('presence',{id:u.id,online:false})}});
 });
 
-ensureAdmin().then(()=>server.listen(PORT,'0.0.0.0',()=>console.log(`205chating v12 running on port ${PORT}`)));
+ensureAdmin().then(()=>server.listen(PORT,'0.0.0.0',()=>console.log(`205chating v13 running on port ${PORT}`)));

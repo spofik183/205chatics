@@ -174,3 +174,16 @@ body.video-recording .composer{box-shadow:0 14px 40px rgba(0,0,0,.22)}
 .reaction-chip.mine{background:var(--accent)!important;color:#fff!important;border-color:var(--accent)!important;box-shadow:0 5px 16px color-mix(in srgb,var(--accent) 24%,transparent)!important}
 
 @media(max-width:760px){.support-command-bar{left:8px;right:8px;bottom:calc(72px + env(safe-area-inset-bottom));max-height:38vh;overflow:auto}.triangle-video-wrap,.media-video.triangle-message-video{width:min(280px,76vw)}}
+
+
+/* v13 — reliable bot commands + admin maintenance */
+.support-command-bar{z-index:60!important}
+.support-command-bar.hidden{display:none!important}
+.support-command-bar button{pointer-events:auto!important}
+.maintenance-admin{display:flex;align-items:center;justify-content:space-between;gap:14px;margin:12px 0 14px;padding:12px 14px;border:1px solid var(--line);border-radius:14px;background:var(--panel2)}
+.maintenance-admin>div:first-child{display:flex;flex-direction:column;gap:3px}.maintenance-admin span{font-size:11px;color:var(--muted)}
+.maintenance-admin-controls{display:flex;gap:8px;align-items:center}.maintenance-admin-controls input{width:110px}
+.admin-delete-user{white-space:nowrap;font-size:11px;padding:7px 9px}.admin-delete-user:disabled{opacity:.4;cursor:not-allowed}
+.maintenance-overlay{position:fixed;inset:0;z-index:10000;display:grid;place-items:center;background:var(--bg);color:var(--text)}
+.maintenance-overlay.hidden{display:none!important}.maintenance-copy{text-align:center;padding:24px}.maintenance-copy h1{margin:0 0 10px;font-size:clamp(28px,5vw,58px);letter-spacing:-.035em}.maintenance-copy p{margin:0;color:var(--muted);font-size:clamp(14px,2vw,20px)}
+@media(max-width:760px){.maintenance-admin{align-items:stretch;flex-direction:column}.maintenance-admin-controls{display:grid;grid-template-columns:90px 1fr}.maintenance-admin-controls input{width:100%}.admin-card .table-wrap{overflow-x:auto}}

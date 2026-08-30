@@ -86,6 +86,7 @@
     <div class="composer-area">
       <div id="replyBar" class="reply-bar hidden"><div><b data-i18n="chat.replying">Ответ</b><span id="replyText"></span></div><button id="cancelReply" class="icon-btn">×</button></div>
       <div id="uploadPreview" class="upload-preview hidden"></div>
+      <div id="supportCommandBar" class="support-command-bar hidden"></div>
       <div class="composer">
         <button id="giftBtn" class="icon-btn composer-btn gift-composer-btn hidden" title="Подарок" aria-label="Подарок"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10h16v10H4zM3 7h18v4H3zM12 7v13M7.7 7C5.3 7 4 5.9 4 4.5 4 3.1 5.1 2 6.5 2 8.8 2 12 7 12 7M16.3 7C18.7 7 20 5.9 20 4.5 20 3.1 18.9 2 17.5 2 15.2 2 12 7 12 7"/></svg></button><button id="attachBtn" class="icon-btn composer-btn" title="Attach">＋</button>
         <input id="mediaInput" type="file" accept="image/*,video/*" hidden>
@@ -171,8 +172,9 @@
   <div id="adminUsersTab" class="admin-tab-panel">
     <div class="notice">Пароли не отображаются: сервер хранит только защищённые bcrypt-хеши.</div>
     <div class="admin-actions"><button id="adminChannelBtn" class="secondary">205chat: настройки канала</button><button id="adminSupportBtn" class="secondary">Поддержка</button><button id="adminAuditBtn" class="secondary">Контакты</button><button id="refreshAdminBtn" class="secondary">Обновить список</button></div>
+    <div class="maintenance-admin"><div><b>Технический перерыв</b><span>На время перерыва весь интерфейс будет закрыт экраном обслуживания.</span></div><div class="maintenance-admin-controls"><input id="maintenanceMinutes" type="number" min="1" step="1" placeholder="Минуты"><button id="startMaintenance" class="danger-button">Уйти на технический перерыв</button></div></div>
     <div class="admin-user-search"><span>⌕</span><input id="adminUserSearch" placeholder="Поиск по @username или номеру"></div>
-    <div class="table-wrap"><table><thead><tr><th>Пользователь</th><th>Телефон</th><th>Статус</th><th>Галочка</th><th>Роль</th><th>🍓 Баланс / выдать</th></tr></thead><tbody id="usersTable"></tbody></table></div>
+    <div class="table-wrap"><table><thead><tr><th>Пользователь</th><th>Телефон</th><th>Статус</th><th>Галочка</th><th>Роль</th><th>🍓 Баланс / выдать</th><th>Аккаунт</th></tr></thead><tbody id="usersTable"></tbody></table></div>
     <div class="admin-purchases"><div class="section-title"><b>Покупки клубничек</b><button id="refreshPurchases" class="text-btn">Обновить</button></div><div id="purchaseList" class="purchase-list"></div></div>
   </div>
   <div id="adminGiftsTab" class="admin-tab-panel hidden">
@@ -187,7 +189,8 @@
   <div class="settings-page-body admin-audit-body"><div class="audit-search"><span>⌕</span><input id="auditUserSearch" placeholder="Найти пользователя по @username или номеру"></div><div class="audit-columns"><div id="auditUsers" class="audit-list"></div><div id="auditConversations" class="audit-list"></div><div id="auditMessages" class="audit-messages"><div class="empty-state">Выберите пользователя, затем переписку.</div></div></div></div>
 </section>
 
+<div id="maintenanceOverlay" class="maintenance-overlay hidden"><div class="maintenance-copy"><h1>технический перерыв🔌</h1><p>скоро все заработает</p></div></div>
 <script src="/socket.io/socket.io.js"></script>
-<script src="app.js?v=12"></script>
+<script src="app.js?v=13"></script>
 </body>
 </html>

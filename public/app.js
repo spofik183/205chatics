@@ -397,16 +397,18 @@ $('#clearGlobalChat').onclick=async()=>{if(!confirm('Очистить ВСЕ с�
 function setAdminTab(tab){$$('[data-admin-tab]').forEach(b=>b.classList.toggle('active',b.dataset.adminTab===tab));$('#adminUsersTab').classList.toggle('hidden',tab!=='users');$('#adminGiftsTab').classList.toggle('hidden',tab!=='gifts');if(tab==='gifts')loadAdminMarket();}
 $$('[data-admin-tab]').forEach(b=>b.onclick=()=>setAdminTab(b.dataset.adminTab));
 function renderAdminUsers(list=adminUsersCache){
-  const tb=$('#usersTable');tb.innerHTML='';list.forEach(u=>{const tr=document.createElement('tr');tr.innerHTML=`<td><b>@${escapeHtml(u.username)}</b> ${badge(u)}${u.isAdmin?'<br><small>Admin</small>':''}</td><td>${escapeHtml(u.phone)}</td><td><span class="status"><span class="dot ${u.online?'on':''}"></span>${u.online?'онлайн':'оффлайн'}</span></td><td><button class="verify-btn ${u.verified?'on':''}" data-id="${u.id}" data-v="${u.verified}" ${u.rootAdmin?'disabled':''}>${u.verified?'✓':'+'}</button></td><td><button class="admin-role-btn ${u.isAdmin?'on':''}" data-admin-id="${u.id}" data-a="${u.isAdmin}" ${u.rootAdmin?'disabled':''}>${u.isAdmin?'Admin':'User'}</button></td><td><div class="berry-admin-cell"><b>${u.strawberries||0}🍓</b><input type="number" step="1" placeholder="любое количество" data-berry-input="${u.id}"><button class="verify-btn" data-berry-give="${u.id}">Выдать</button></div></td>`;tb.appendChild(tr)});
+  const tb=$('#usersTable');tb.innerHTML='';list.forEach(u=>{const tr=document.createElement('tr');tr.innerHTML=`<td><b>@${escapeHtml(u.username)}</b> ${badge(u)}${u.isAdmin?'<br><small>Admin</small>':''}</td><td>${escapeHtml(u.phone)}</td><td><span class="status"><span class="dot ${u.online?'on':''}"></span>${u.online?'онлайн':'оффлайн'}</span></td><td><button class="verify-btn ${u.verified?'on':''}" data-id="${u.id}" data-v="${u.verified}" ${u.rootAdmin?'disabled':''}>${u.verified?'✓':'+'}</button></td><td><button class="admin-role-btn ${u.isAdmin?'on':''}" data-admin-id="${u.id}" data-a="${u.isAdmin}" ${u.rootAdmin?'disabled':''}>${u.isAdmin?'Admin':'User'}</button></td><td><div class="berry-admin-cell"><b>${u.strawberries||0}🍓</b><input type="number" step="1" placeholder="любое количество" data-berry-input="${u.id}"><button class="verify-btn" data-berry-give="${u.id}">Выдать</button></div></td><td><button class="danger-button admin-delete-user" data-delete-user="${u.id}" ${u.rootAdmin?'disabled':''}>Удалить аккаунт</button></td>`;tb.appendChild(tr)});
   tb.querySelectorAll('.verify-btn[data-v]:not([disabled])').forEach(b=>b.onclick=async()=>{try{await api('/api/admin/users/'+b.dataset.id+'/verified',{method:'PATCH',body:JSON.stringify({verified:b.dataset.v!=='true'})});await openAdmin()}catch(err){toast(err.message)}});
   tb.querySelectorAll('.admin-role-btn:not([disabled])').forEach(b=>b.onclick=async()=>{try{await api('/api/admin/users/'+b.dataset.adminId+'/admin',{method:'PATCH',body:JSON.stringify({isAdmin:b.dataset.a!=='true'})});await openAdmin()}catch(err){toast(err.message)}});
   tb.querySelectorAll('[data-berry-give]').forEach(b=>b.onclick=async()=>{const id=b.dataset.berryGive;const input=tb.querySelector(`[data-berry-input="${CSS.escape(id)}"]`);const amount=Number(input.value);if(!Number.isFinite(amount)||!amount)return toast('Укажи количество');try{await api('/api/admin/users/'+id+'/strawberries',{method:'POST',body:JSON.stringify({amount})});toast('Баланс изменён');await openAdmin()}catch(err){toast(err.message)}});
+  tb.querySelectorAll('[data-delete-user]:not([disabled])').forEach(b=>b.onclick=async()=>{const id=b.dataset.deleteUser;const u=adminUsersCache.find(x=>x.id===id);if(!confirm(`Удалить аккаунт @${u?.username||'user'} навсегда? Сообщения и данные этого аккаунта тоже будут удалены.`))return;try{await api('/api/admin/users/'+id,{method:'DELETE'});toast('Аккаунт удалён');await openAdmin()}catch(err){toast(err.message)}});
 }
 async function openAdmin(){
   try{const d=await api('/api/admin/users');adminUsersCache=d.users||[];renderAdminUsers();openModal('adminModal');setAdminTab('users');await loadPurchasesAdmin();}catch(err){toast(err.message)}
 }
 $('#adminUserSearch').oninput=e=>{const q=(e.target.value||'').trim().toLowerCase().replace(/^@/,'');renderAdminUsers(adminUsersCache.filter(u=>!q||u.username.toLowerCase().includes(q)||(u.phone||'').includes(q)));};
 $('#adminBtn').onclick=openAdmin;
+$('#startMaintenance').onclick=async()=>{const minutes=Math.trunc(Number($('#maintenanceMinutes').value));if(!Number.isFinite(minutes)||minutes<1)return toast('Укажи время перерыва в минутах');if(!confirm(`Включить технический перерыв на ${minutes} мин.?`))return;try{const d=await api('/api/admin/maintenance',{method:'POST',body:JSON.stringify({minutes})});showMaintenanceState(true,d.until)}catch(err){toast(err.message)}};
 $('#sideAdmin').onclick=()=>{ $('#sideMenu').classList.add('hidden'); $('#sidebar').classList.remove('mobile-open'); openAdmin(); };
 $('#refreshAdminBtn').onclick=openAdmin;
 $('#adminChannelBtn').onclick=()=>{ closeModal('adminModal'); openChatProfile(); };
@@ -669,6 +671,7 @@ function connect(){
   socket.on('presence',x=>{contacts=contacts.map(c=>c.id===x.id?{...c,online:x.online}:c);if(currentPeerUser?.id===x.id)currentPeerUser.online=x.online;renderContacts();updateChatHeader()});
   socket.on('participants',n=>{if(!supportMode)updateChatHeader(n);$('#channelMembers').textContent=`${n} ${lang==='ru'?'участников':'members'}`});socket.on('channel-updated',c=>{channel=c||channel;$('#channelDescription').value=channel.description||'';updateChatHeader();setAvatar($('#channelAvatarBtn'),{username:'205',avatarUrl:channel.avatarUrl||''})});socket.on('global-chat-cleared',()=>{if(!currentPeer&&!supportMode)$('#messages').innerHTML=''});
   socket.on('support-updated',x=>{if((supportMode==='user'&&x.userId===me.id)||(supportMode==='admin'&&x.userId===supportUserId)||supportMode==='inbox')loadMessages();});
+  socket.on('maintenance',x=>showMaintenanceState(!!x.active,x.until));socket.on('account-deleted',()=>{localStorage.removeItem('205token');location.reload()});
 }
 async function startApp(){
   try{if(!me){const d=await api('/api/me');me=d.user}$('#auth').classList.add('hidden');$('#app').classList.remove('hidden');resetModes();currentPeer=null;currentPeerUser=null;syncMeUI();await Promise.all([loadContacts(),refreshStats(),loadChannel(),loadGiftCatalog(),loadMyGifts()]);await loadMessages();connect()}catch(err){console.error(err);localStorage.removeItem('205token');token=null;$('#auth').classList.remove('hidden');$('#app').classList.add('hidden')}
@@ -676,6 +679,20 @@ async function startApp(){
 
 applyPrefs();
 if(token)startApp();
+
+let maintenanceTimer=null;
+function showMaintenanceState(active,until=null){
+  const overlay=$('#maintenanceOverlay');if(!overlay)return;
+  clearTimeout(maintenanceTimer);
+  if(!active){overlay.classList.add('hidden');return}
+  overlay.classList.remove('hidden');
+  const ms=until?new Date(until).getTime()-Date.now():0;
+  if(ms>0)maintenanceTimer=setTimeout(()=>{overlay.classList.add('hidden');checkMaintenance()},Math.min(ms+300,2147483000));
+}
+async function checkMaintenance(){
+  try{const r=await fetch('/api/maintenance',{cache:'no-store'});const d=await r.json();showMaintenanceState(!!d.active,d.until)}catch{}
+}
+checkMaintenance();setInterval(checkMaintenance,15000);
 
 // v8 interaction guards
 $('#chatProfileOpen').onclick=()=>{ if(!supportMode)openChatProfile(); };
@@ -708,28 +725,29 @@ $('#globalChat').onclick=async()=>{hideSupportCommands();await v12GlobalClick();
 const v12UpdateHeader=updateChatHeader;
 updateChatHeader=function(participantCount){v12UpdateHeader(participantCount);if(!currentPeer||supportMode)renderChatStreak(0)};
 
-function supportCommandBar(){
-  let bar=document.getElementById('supportCommandBar');
-  if(!bar){bar=document.createElement('div');bar.id='supportCommandBar';bar.className='support-command-bar hidden';document.querySelector('.composer-area')?.appendChild(bar)}
-  return bar;
-}
-function hideSupportCommands(){supportCommandBar().classList.add('hidden')}
+function supportCommandBar(){ return document.getElementById('supportCommandBar'); }
+function hideSupportCommands(){ supportCommandBar()?.classList.add('hidden') }
 function showSupportCommands(mode='main'){
-  if(supportMode!=='user')return hideSupportCommands();
-  const bar=supportCommandBar();bar.classList.remove('hidden');
+  const bar=supportCommandBar(); if(!bar)return;
+  if(supportMode!=='user'){bar.classList.add('hidden');return}
+  bar.dataset.mode=mode; bar.classList.remove('hidden');
   if(mode==='berries'){
-    bar.innerHTML='<span class="command-title">Выбери количество клубничек</span><button data-support-pack="s100">100🍓 · 49₽</button><button data-support-pack="s300">300🍓 · 119₽</button><button data-support-pack="s750">750🍓 · 239₽</button><button data-support-back>← Назад</button>';
-    bar.querySelectorAll('[data-support-pack]').forEach(b=>b.onclick=async()=>{try{await api('/api/support/purchase',{method:'POST',body:JSON.stringify({packageId:b.dataset.supportPack})});hideSupportCommands();await loadSupportUserMessages()}catch(e){toast(e.message)}});
-    bar.querySelector('[data-support-back]').onclick=()=>showSupportCommands('main');return;
+    bar.innerHTML='<span class="command-title">Выбери количество клубничек</span><button type="button" data-support-pack="s100">100🍓 · 49₽</button><button type="button" data-support-pack="s300">300🍓 · 119₽</button><button type="button" data-support-pack="s750">750🍓 · 239₽</button><button type="button" data-support-back>← Назад</button>';
+  }else{
+    bar.innerHTML='<span class="command-title">Команды чат-бота</span><button type="button" data-support-cmd="berries"># пополнить клубнички🍓</button><button type="button" data-support-cmd="error"># рассказать об ошибке</button><button type="button" data-support-cmd="collab"># сотрудничество</button>';
   }
-  bar.innerHTML='<span class="command-title">Команды чат-бота</span><button data-support-cmd="berries"># пополнить клубнички🍓</button><button data-support-cmd="error"># рассказать об ошибке</button><button data-support-cmd="collab"># сотрудничество</button>';
-  bar.querySelector('[data-support-cmd="berries"]').onclick=()=>showSupportCommands('berries');
-  bar.querySelector('[data-support-cmd="error"]').onclick=async()=>{hideSupportCommands();try{await api('/api/support/messages',{method:'POST',body:JSON.stringify({text:'#рассказать об ошибке'})});await loadSupportUserMessages();$('#messageInput').value='';$('#messageInput').placeholder='Опиши ошибку подробно…';$('#messageInput').focus()}catch(e){toast(e.message)}};
-  bar.querySelector('[data-support-cmd="collab"]').onclick=async()=>{hideSupportCommands();try{await api('/api/support/messages',{method:'POST',body:JSON.stringify({text:'#сотрудничество'})});await loadSupportUserMessages()}catch(e){toast(e.message)}};
 }
-$('#messageInput').addEventListener('focus',()=>{if(supportMode==='user')showSupportCommands('main')});
-$('#messageInput').addEventListener('click',()=>{if(supportMode==='user')showSupportCommands('main')});
-document.addEventListener('click',e=>{if(!e.target.closest('#supportCommandBar')&&!e.target.closest('#messageInput')&&supportMode==='user')hideSupportCommands()});
+supportCommandBar()?.addEventListener('pointerdown',e=>{e.stopPropagation()});
+supportCommandBar()?.addEventListener('click',async e=>{
+  const btn=e.target.closest('button');if(!btn)return;e.preventDefault();e.stopPropagation();
+  if(btn.hasAttribute('data-support-back'))return showSupportCommands('main');
+  if(btn.dataset.supportCmd==='berries')return showSupportCommands('berries');
+  if(btn.dataset.supportCmd==='error'){hideSupportCommands();try{await api('/api/support/messages',{method:'POST',body:JSON.stringify({text:'#рассказать об ошибке'})});await loadSupportUserMessages();$('#messageInput').value='';$('#messageInput').placeholder='Опиши ошибку подробно…';setTimeout(()=>$('#messageInput').focus(),0)}catch(err){toast(err.message)}return}
+  if(btn.dataset.supportCmd==='collab'){hideSupportCommands();try{await api('/api/support/messages',{method:'POST',body:JSON.stringify({text:'#сотрудничество'})});await loadSupportUserMessages()}catch(err){toast(err.message)}return}
+  if(btn.dataset.supportPack){try{btn.disabled=true;await api('/api/support/purchase',{method:'POST',body:JSON.stringify({packageId:btn.dataset.supportPack})});hideSupportCommands();await loadSupportUserMessages()}catch(err){toast(err.message);btn.disabled=false}}
+});
+['focus','click'].forEach(ev=>$('#messageInput').addEventListener(ev,()=>{if(supportMode==='user')showSupportCommands('main')}));
+document.addEventListener('pointerdown',e=>{if(supportMode==='user'&&!e.target.closest('#supportCommandBar')&&!e.target.closest('#messageInput'))hideSupportCommands()});
 
 // Refresh the streak immediately after either side sends a private message.
 if(socket){ /* socket is reconnected by connect(); listener is attached below through a small hook */ }
