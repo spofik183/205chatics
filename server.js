@@ -188,7 +188,7 @@ app.post('/api/upload',auth,upload.single('file'),(req,res)=>{
   let type=mime.startsWith('image/')?'image':mime.startsWith('video/')?'video':mime.startsWith('audio/')?'audio':'file';
   // square-*.webm/mp4 всегда считается видео, voice-* — аудио.
   const original=String(req.file.originalname||'').toLowerCase();
-  if(original.startsWith('square-')) type='video';
+  if(original.startsWith('square-')||original.startsWith('triangle-')) type='video';
   if(original.startsWith('voice-')) type='audio';
   if(type==='file'){fs.unlink(req.file.path,()=>{});return res.status(400).json({error:'Можно отправлять только фото, видео и голосовые сообщения'})}
   res.json({url:`/uploads/${req.file.filename}`,type,mime,name:String(req.file.originalname||'').slice(0,120),size:req.file.size});
@@ -283,10 +283,12 @@ function miniAiReply(text){
   const t=String(text||'').toLowerCase();
   if(/привет|здравств|hello|hi\b/.test(t))return 'Привет! Я бот поддержки 205chating. Могу помочь с аккаунтом, личными сообщениями, подарками, клубничками, фото/видео и настройками.';
   if(/парол|войти|вход|логин/.test(t))return 'Если не получается войти, проверь @username или номер +7XXXXXXXXXX и пароль. Пароль должен быть не короче 6 символов. Если доступ всё равно потерян — напиши, какой именно аккаунт не открывается, администратор подключится.';
-  if(/клубнич|баланс|пополн|купить|оплат/.test(t))return 'Пополнение 🍓 находится в Настройки → Баланс → Пополнить. После перевода по указанному номеру отметь оплату — администратор проверит её вручную.';
+  if(/^#?\s*сотрудничество/.test(t))return 'По вопросам сотрудничества напиши на 67io67676767@gmail.com';
+  if(/^#?\s*рассказать об ошибке/.test(t))return 'Опиши ошибку как можно подробнее: что нажал(а), что ожидал(а) увидеть и что произошло. Сообщение останется в этом чате и будет доступно администратору поддержки.';
+  if(/клубнич|баланс|пополн|купить|оплат/.test(t))return 'Нажми на поле сообщения — сверху появится команда «# пополнить клубнички🍓». Выбери пакет, переведи сумму на номер, который я пришлю, а после перевода напиши «успешно✅».';
   if(/подар|nft|нфт|рынок/.test(t))return 'Подарки можно отправлять только в личных сообщениях. Нажми кнопку подарка → откроется Рынок. Выбери подарок, добавь письмо до 50 символов и отправь другу.';
   if(/голос|микроф|аудио/.test(t))return 'Для голосовых разреши сайту доступ к микрофону. Начни запись, а когда закончишь — нажми обычную кнопку отправки.';
-  if(/камер|квадрат|видео/.test(t))return 'Для видео-квадрата разреши камеру и микрофон. Максимальная длина — 59 секунд; для отправки нажми обычную кнопку отправки.';
+  if(/камер|треуг|квадрат|видео/.test(t))return 'Для видео-треугольника разреши камеру и микрофон. Максимальная длина — 59 секунд; для отправки нажми обычную кнопку отправки.';
   if(/аватар|фото проф|профил/.test(t))return 'Аватар и «О себе» меняются в профиле. Username тоже можно изменить, если новый @username свободен.';
   if(/контакт|личн|друг/.test(t))return 'Чтобы начать личную переписку, выбери «Добавить контакт» и введи номер телефона или @username.';
   if(/жалоб|оскорб|спам|мошен/.test(t))return 'Опиши ситуацию подробнее: кто написал, что произошло и примерно когда. Сообщение увидит администратор и сможет ответить в этом же чате.';
@@ -304,13 +306,36 @@ app.post('/api/support/open',auth,(req,res)=>{
 });
 app.delete('/api/support/hide',auth,(req,res)=>{const t=getThread(req.user.id,false);if(t)t.visible=false;saveDb();emitSupportUpdate(req.user.id);res.json({ok:true});});
 app.get('/api/support/messages',auth,(req,res)=>{const t=getThread(req.user.id,true);res.json({messages:t.messages.map(m=>serializeSupportMessage(m,req.user,req.user))});});
-app.post('/api/support/messages',auth,(req,res)=>{const text=String(req.body.text||'').trim();if(!text)return res.status(400).json({error:'Напишите сообщение'});const t=getThread(req.user.id,true);const m=pushSupport(req.user.id,'user',text);let botMessage=null;if(!t.humanJoined){botMessage=pushSupport(req.user.id,'bot',miniAiReply(text));}saveDb();emitSupportUpdate(req.user.id);res.json({message:serializeSupportMessage(m,req.user,req.user),botMessage:botMessage?serializeSupportMessage(botMessage,req.user,req.user):null});});
+app.post('/api/support/messages',auth,(req,res)=>{const text=String(req.body.text||'').trim();if(!text)return res.status(400).json({error:'Напишите сообщение'});const t=getThread(req.user.id,true);const m=pushSupport(req.user.id,'user',text);let botMessage=null;if(!t.humanJoined){
+  if(/^успешно\s*✅?$/i.test(text)){const p=db.purchases.filter(x=>x.userId===req.user.id&&x.status==='pending').sort((a,b)=>String(b.createdAt).localeCompare(String(a.createdAt)))[0];if(p){p.status='paid';p.updatedAt=new Date().toISOString();botMessage=pushSupport(req.user.id,'bot',`Спасибо! Заявка на ${p.berries}🍓 отправлена администратору на проверку. После подтверждения клубнички появятся на балансе.`);}else botMessage=pushSupport(req.user.id,'bot','Не вижу активной заявки на пополнение. Нажми на поле сообщения → «# пополнить клубнички🍓» и сначала выбери пакет.');}
+  else botMessage=pushSupport(req.user.id,'bot',miniAiReply(text));
+}saveDb();emitSupportUpdate(req.user.id);res.json({message:serializeSupportMessage(m,req.user,req.user),botMessage:botMessage?serializeSupportMessage(botMessage,req.user,req.user):null});});
 app.get('/api/admin/support/threads',auth,adminOnly,(req,res)=>{
   const threads=Object.values(db.supportThreads).map(t=>{const u=db.users.find(x=>x.id===t.userId);const last=t.messages[t.messages.length-1];return u?{user:cleanUser(u),updatedAt:t.updatedAt||t.createdAt,lastText:last?.text||'',lastFrom:last?.from||'',count:t.messages.length}:null}).filter(Boolean).sort((a,b)=>String(b.updatedAt).localeCompare(String(a.updatedAt)));
   res.json({threads});
 });
 app.get('/api/admin/support/:userId/messages',auth,adminOnly,(req,res)=>{const u=db.users.find(x=>x.id===req.params.userId);if(!u)return res.status(404).json({error:'Пользователь не найден'});const t=getThread(u.id,true);res.json({user:cleanUser(u),messages:t.messages.map(m=>serializeSupportMessage(m,req.user,u))});});
 app.post('/api/admin/support/:userId/messages',auth,adminOnly,(req,res)=>{const u=db.users.find(x=>x.id===req.params.userId);if(!u)return res.status(404).json({error:'Пользователь не найден'});const text=String(req.body.text||'').trim();if(!text)return res.status(400).json({error:'Напишите ответ'});const t=getThread(u.id,true);t.humanJoined=true;const m=pushSupport(u.id,'admin',text);saveDb();emitSupportUpdate(u.id);res.json({message:serializeSupportMessage(m,req.user,u)});});
+
+
+app.post('/api/support/purchase',auth,(req,res)=>{
+  const pack=PURCHASE_PACKAGES.find(p=>p.id===req.body.packageId);if(!pack)return res.status(400).json({error:'Пакет не найден'});
+  const existing=db.purchases.find(p=>p.userId===req.user.id&&p.packageId===pack.id&&['pending','paid'].includes(p.status));if(existing)return res.status(409).json({error:'У вас уже есть незавершённая заявка на этот пакет'});
+  const p={id:crypto.randomUUID(),userId:req.user.id,packageId:pack.id,berries:pack.berries,rub:pack.rub,status:'pending',createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()};db.purchases.push(p);
+  pushSupport(req.user.id,'bot',`Для пополнения ${pack.berries}🍓 переведи ${pack.rub}₽ на номер ${PAYMENT_PHONE}. После перевода напиши здесь: успешно✅`);
+  saveDb();emitSupportUpdate(req.user.id);res.json({purchase:p,paymentPhone:PAYMENT_PHONE});
+});
+
+function utcDayKey(value){const d=new Date(value);return Number.isNaN(d.getTime())?'':d.toISOString().slice(0,10)}
+function shiftUtcDay(key,delta){const d=new Date(key+'T00:00:00.000Z');d.setUTCDate(d.getUTCDate()+delta);return d.toISOString().slice(0,10)}
+function privateStreak(a,b){
+  const days=new Map();
+  for(const m of db.messages){if((m.chatType||'global')!=='private')continue;const pair=(m.userId===a&&m.recipientId===b)||(m.userId===b&&m.recipientId===a);if(!pair)continue;const key=utcDayKey(m.createdAt);if(!key)continue;if(!days.has(key))days.set(key,new Set());days.get(key).add(m.userId)}
+  const active=key=>days.get(key)?.has(a)&&days.get(key)?.has(b);
+  const today=utcDayKey(new Date()),yesterday=shiftUtcDay(today,-1);let cursor=active(today)?today:(active(yesterday)?yesterday:null);if(!cursor)return 0;
+  let n=0;while(active(cursor)){n++;cursor=shiftUtcDay(cursor,-1)}return n;
+}
+app.get('/api/private/:peerId/streak',auth,(req,res)=>{const peer=db.users.find(u=>u.id===req.params.peerId);if(!peer)return res.status(404).json({error:'Пользователь не найден'});res.json({streak:privateStreak(req.user.id,peer.id)});});
 
 // Admin gift/NFT market
 app.get('/api/admin/gifts',auth,adminOnly,(_req,res)=>res.json({catalog:db.giftCatalog.slice().sort((a,b)=>String(b.createdAt).localeCompare(String(a.createdAt)))}));
@@ -393,7 +418,7 @@ io.on('connection',socket=>{
     let recipientId=payload?.recipientId||null; const recipient=recipientId?db.users.find(x=>x.id===recipientId):null; if(recipientId&&!recipient)return; if(recipient)addMutualContact(u,recipient);
     const reply=payload?.replyTo?db.messages.find(x=>x.id===payload.replyTo):null;
     const m={id:crypto.randomUUID(),userId:u.id,text,type,mediaUrl:type==='text'?'':mediaUrl,fileName:String(payload?.fileName||'').slice(0,120),mime:String(payload?.mime||'').slice(0,80),anonymous:!!payload?.anonymous&&!recipientId,chatType:recipientId?'private':'global',recipientId:recipientId||null,createdAt:new Date().toISOString(),viewers:[],reactions:{},hiddenFor:[],replyTo:reply&&canSeeMessage(reply,u)?reply.id:null,pinned:false,giftId:null};
-    db.messages.push(m); if(db.messages.length>5000)db.messages=db.messages.slice(-5000); saveDb(); emitToViewers('message',m,viewer=>serializeMessage(m,viewer));
+    db.messages.push(m); if(db.messages.length>5000)db.messages=db.messages.slice(-5000); saveDb(); emitToViewers('message',m,viewer=>serializeMessage(m,viewer)); if(recipient){const streak=privateStreak(u.id,recipient.id);for(const s of io.sockets.sockets.values()){if(s.user.id===u.id)s.emit('streak-updated',{peerId:recipient.id,streak});else if(s.user.id===recipient.id)s.emit('streak-updated',{peerId:u.id,streak});}}
   });
   socket.on('view-message',id=>{const m=db.messages.find(x=>x.id===id);if(!m||!canSeeMessage(m,u)||m.userId===u.id)return;m.viewers||=[];if(m.viewers.includes(u.id))return;m.viewers.push(u.id);saveDb();emitToViewers('message-views',m,{id:m.id,views:m.viewers.length});});
   socket.on('react-message',payload=>{const id=payload?.id,emoji=payload?.emoji;const allowed=['❤','👍','😂','💋','👀','🤔','🤢','😎','🤡','💩'];if(!allowed.includes(emoji))return;const m=db.messages.find(x=>x.id===id);if(!m||!canSeeMessage(m,u))return;m.reactions||={};m.reactions[emoji]||=[];const i=m.reactions[emoji].indexOf(u.id);if(i>=0)m.reactions[emoji].splice(i,1);else m.reactions[emoji].push(u.id);saveDb();emitToViewers('message-reactions',m,viewer=>({id:m.id,reactions:serializeMessage(m,viewer).reactions}));});
@@ -403,4 +428,4 @@ io.on('connection',socket=>{
   socket.on('disconnect',()=>{const count=Math.max(0,(onlineSockets.get(u.id)||1)-1);if(count)onlineSockets.set(u.id,count);else{onlineSockets.delete(u.id);u.online=false;saveDb();io.emit('presence',{id:u.id,online:false})}});
 });
 
-ensureAdmin().then(()=>server.listen(PORT,'0.0.0.0',()=>console.log(`205chating v11 running on port ${PORT}`)));
+ensureAdmin().then(()=>server.listen(PORT,'0.0.0.0',()=>console.log(`205chating v12 running on port ${PORT}`)));

@@ -155,7 +155,10 @@ $('#contactForm').onsubmit=async e=>{ e.preventDefault(); try{ const d=await api
 function replyMarkup(m){ if(!m.replyTo)return ''; return `<div class="reply-preview"><b>@${escapeHtml(m.replyTo.sender||'user')}</b>${escapeHtml(m.replyTo.text||'')}</div>`; }
 function mediaMarkup(m){
   if(m.type==='image')return `<img class="media-image" src="${escapeHtml(m.mediaUrl)}" alt="image">`;
-  if(m.type==='video')return `<video class="media-video" src="${escapeHtml(m.mediaUrl)}" controls playsinline preload="metadata"></video>`;
+  if(m.type==='video'){
+    const triangle=/^(triangle|square)-/i.test(m.fileName||'');
+    return triangle?`<span class="triangle-video-wrap"><video class="media-video triangle-message-video" src="${escapeHtml(m.mediaUrl)}" controls playsinline preload="metadata"></video></span>`:`<video class="media-video" src="${escapeHtml(m.mediaUrl)}" controls playsinline preload="metadata"></video>`;
+  }
   if(m.type==='audio')return `<audio class="media-audio" src="${escapeHtml(m.mediaUrl)}" controls preload="metadata"></audio>`;
   return '';
 }
@@ -325,7 +328,7 @@ async function finishRecording(){
   if(recordCanceled||!chunks.length){recordCanceled=false;return;}
   try{
     toast(lang==='ru'?'Отправка записи…':'Sending recording…');
-    const blob=new Blob(chunks,{type:mime}); if(!blob.size)throw new Error('Запись получилась пустой — попробуй ещё раз'); const ext=mime.includes('mp4')?'mp4':mime.includes('quicktime')?'mov':'webm'; const file=new File([blob],`${wasMode==='video'?'square':'voice'}-${Date.now()}.${ext}`,{type:mime});
+    const blob=new Blob(chunks,{type:mime}); if(!blob.size)throw new Error('Запись получилась пустой — попробуй ещё раз'); const ext=mime.includes('mp4')?'mp4':mime.includes('quicktime')?'mov':'webm'; const file=new File([blob],`${wasMode==='video'?'triangle':'voice'}-${Date.now()}.${ext}`,{type:mime});
     const up=await uploadFile(file);
     if(!socket?.connected)throw new Error('Нет соединения с сервером');
     socket.emit('send-message',{type:wasMode==='video'?'video':'audio',mediaUrl:up.url,fileName:up.name,mime:up.mime||mime,recipientId:currentPeer||null,replyTo:replyTo?.id||null});
@@ -544,7 +547,7 @@ function giftMessageMarkup(m){
 function mediaMarkup(m){
   if(m.type==='gift')return giftMessageMarkup(m);
   if(m.type==='image')return `<img class="media-image" src="${escapeHtml(m.mediaUrl)}" alt="image">`;
-  if(m.type==='video')return `<video class="media-video" src="${escapeHtml(m.mediaUrl)}" controls playsinline preload="metadata"></video>`;
+  if(m.type==='video'){const triangle=/^(triangle|square)-/i.test(m.fileName||'');return triangle?`<span class="triangle-video-wrap"><video class="media-video triangle-message-video" src="${escapeHtml(m.mediaUrl)}" controls playsinline preload="metadata"></video></span>`:`<video class="media-video" src="${escapeHtml(m.mediaUrl)}" controls playsinline preload="metadata"></video>`;}
   if(m.type==='audio')return `<audio class="media-audio" src="${escapeHtml(m.mediaUrl)}" controls preload="metadata"></audio>`;
   return '';
 }
@@ -563,7 +566,7 @@ function renderSupportMessage(m){
   const row=document.createElement('div'); row.className='msg support-msg'+(m.mine?' mine':''); row.dataset.id=m.id; const av=document.createElement('div');av.className='avatar msg-avatar';setAvatar(av,m.sender);
   const bubble=document.createElement('div');bubble.className='bubble support-bubble';bubble.innerHTML=`<div class="name">@${escapeHtml(m.sender?.username||'Поддержка')}${badge(m.sender)}</div><div class="text">${escapeHtml(m.text||'')}</div><div class="message-meta"><span>${formatTime(m.createdAt)}</span></div>`;row.append(av,bubble);$('#messages').appendChild(row);
 }
-async function renderSupportTools(){ if(supportMode!=='user')return; const box=document.createElement('div');box.className='support-buy';box.innerHTML='<b>Пополнить 🍓 прямо здесь</b><div><button data-p="s100">100🍓 · 49₽</button><button data-p="s300">300🍓 · 119₽</button><button data-p="s750">750🍓 · 239₽</button></div><small>После выбора бот покажет номер для перевода. Подтверждение выполняет администратор.</small>';box.querySelectorAll('[data-p]').forEach(b=>b.onclick=async()=>{await createBerryPurchase(b.dataset.p);await loadSupportUserMessages()});$('#messages').appendChild(box); }
+async function renderSupportTools(){ return; }
 async function createBerryPurchase(packageId){try{const d=await api('/api/strawberries/purchase',{method:'POST',body:JSON.stringify({packageId})});toast(`Переведи ${d.purchase.rub}₽ на ${d.paymentPhone}`);await loadBalancePage()}catch(err){toast(err.message)}}
 async function markPurchasePaid(id){try{await api('/api/strawberries/purchase/'+encodeURIComponent(id)+'/paid',{method:'POST'});toast('Отправлено на проверку');await loadBalancePage()}catch(err){toast(err.message)}}
 async function loadSupportUserMessages(){const d=await api('/api/support/messages');$('#messages').innerHTML='';(d.messages||[]).forEach(renderSupportMessage);await renderSupportTools();requestAnimationFrame(()=>{$('#messages').scrollTop=$('#messages').scrollHeight});}
@@ -679,4 +682,60 @@ $('#chatProfileOpen').onclick=()=>{ if(!supportMode)openChatProfile(); };
 $('#messageInput').oninput=()=>{
   if(supportMode)return;
   if(!socket)return; socket.emit('typing',{isTyping:true,peerId:currentPeer||null}); clearTimeout(typingTimer); typingTimer=setTimeout(()=>socket.emit('typing',{isTyping:false,peerId:currentPeer||null}),850);
+};
+
+
+// v12 — private-chat streak + support command palette
+let chatStreakDays = 0;
+function ensureStreakEl(){
+  let el=document.getElementById('chatStreak');
+  if(!el){el=document.createElement('span');el.id='chatStreak';el.className='chat-streak hidden';const sub=document.getElementById('chatSubtitle');sub?.parentElement?.appendChild(el)}
+  return el;
+}
+function renderChatStreak(days){
+  chatStreakDays=Math.max(0,Number(days)||0);const el=ensureStreakEl();
+  if(!currentPeer||supportMode){el.classList.add('hidden');return}
+  el.classList.remove('hidden');el.classList.toggle('zero',chatStreakDays===0);el.innerHTML=`<span class="streak-berry">🍓</span><span>${chatStreakDays}</span> ${chatStreakDays===1?'день':'дн.'}`;
+}
+async function loadChatStreak(){
+  if(!currentPeer||supportMode)return renderChatStreak(0);
+  try{const d=await api('/api/private/'+encodeURIComponent(currentPeer)+'/streak');renderChatStreak(d.streak||0)}catch{renderChatStreak(0)}
+}
+const v12OpenPeer=openPeer;
+openPeer=async function(u){await v12OpenPeer(u);await loadChatStreak()};
+const v12GlobalClick=$('#globalChat').onclick;
+$('#globalChat').onclick=async()=>{hideSupportCommands();await v12GlobalClick();renderChatStreak(0)};
+const v12UpdateHeader=updateChatHeader;
+updateChatHeader=function(participantCount){v12UpdateHeader(participantCount);if(!currentPeer||supportMode)renderChatStreak(0)};
+
+function supportCommandBar(){
+  let bar=document.getElementById('supportCommandBar');
+  if(!bar){bar=document.createElement('div');bar.id='supportCommandBar';bar.className='support-command-bar hidden';document.querySelector('.composer-area')?.appendChild(bar)}
+  return bar;
+}
+function hideSupportCommands(){supportCommandBar().classList.add('hidden')}
+function showSupportCommands(mode='main'){
+  if(supportMode!=='user')return hideSupportCommands();
+  const bar=supportCommandBar();bar.classList.remove('hidden');
+  if(mode==='berries'){
+    bar.innerHTML='<span class="command-title">Выбери количество клубничек</span><button data-support-pack="s100">100🍓 · 49₽</button><button data-support-pack="s300">300🍓 · 119₽</button><button data-support-pack="s750">750🍓 · 239₽</button><button data-support-back>← Назад</button>';
+    bar.querySelectorAll('[data-support-pack]').forEach(b=>b.onclick=async()=>{try{await api('/api/support/purchase',{method:'POST',body:JSON.stringify({packageId:b.dataset.supportPack})});hideSupportCommands();await loadSupportUserMessages()}catch(e){toast(e.message)}});
+    bar.querySelector('[data-support-back]').onclick=()=>showSupportCommands('main');return;
+  }
+  bar.innerHTML='<span class="command-title">Команды чат-бота</span><button data-support-cmd="berries"># пополнить клубнички🍓</button><button data-support-cmd="error"># рассказать об ошибке</button><button data-support-cmd="collab"># сотрудничество</button>';
+  bar.querySelector('[data-support-cmd="berries"]').onclick=()=>showSupportCommands('berries');
+  bar.querySelector('[data-support-cmd="error"]').onclick=async()=>{hideSupportCommands();try{await api('/api/support/messages',{method:'POST',body:JSON.stringify({text:'#рассказать об ошибке'})});await loadSupportUserMessages();$('#messageInput').value='';$('#messageInput').placeholder='Опиши ошибку подробно…';$('#messageInput').focus()}catch(e){toast(e.message)}};
+  bar.querySelector('[data-support-cmd="collab"]').onclick=async()=>{hideSupportCommands();try{await api('/api/support/messages',{method:'POST',body:JSON.stringify({text:'#сотрудничество'})});await loadSupportUserMessages()}catch(e){toast(e.message)}};
+}
+$('#messageInput').addEventListener('focus',()=>{if(supportMode==='user')showSupportCommands('main')});
+$('#messageInput').addEventListener('click',()=>{if(supportMode==='user')showSupportCommands('main')});
+document.addEventListener('click',e=>{if(!e.target.closest('#supportCommandBar')&&!e.target.closest('#messageInput')&&supportMode==='user')hideSupportCommands()});
+
+// Refresh the streak immediately after either side sends a private message.
+if(socket){ /* socket is reconnected by connect(); listener is attached below through a small hook */ }
+const v12Connect=connect;
+connect=function(){
+  v12Connect();
+  socket.on('message',m=>{if(currentPeer&&m.chatType==='private'&&(m.sender?.id===currentPeer||m.recipientId===currentPeer||m.mine))setTimeout(loadChatStreak,80)});
+  socket.on('streak-updated',x=>{if(currentPeer&&x.peerId===currentPeer)renderChatStreak(x.streak||0)});
 };
