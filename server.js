@@ -184,4 +184,8 @@ io.on('connection', socket => {
   });
 });
 
-ensureAdmin().then(() => server.listen(PORT, () => console.log(`205chating: http://localhost:${PORT}`)));
+ensureAdmin().then(() => {
+    server.listen(PORT, '0.0.0.0', () => {
+        console.log(`205chating running on port ${PORT}`);
+    });
+});
