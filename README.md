@@ -37,3 +37,4 @@ Open `http://localhost:3000`.
 ## Storage warning
 
 Uploads and `data/db.json` are stored on the local filesystem. Railway containers are not persistent storage, so for real users migrate users/messages to PostgreSQL and media to object storage (for example S3-compatible storage).
+v2 deployed
