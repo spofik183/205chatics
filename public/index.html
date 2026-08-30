@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
   <meta name="theme-color" content="#171717">
   <title>205chating</title>
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=8">
 </head>
 <body>
 <div id="toast" class="toast"></div>
@@ -87,7 +87,7 @@
       <div id="replyBar" class="reply-bar hidden"><div><b data-i18n="chat.replying">Ответ</b><span id="replyText"></span></div><button id="cancelReply" class="icon-btn">×</button></div>
       <div id="uploadPreview" class="upload-preview hidden"></div>
       <div class="composer">
-        <button id="attachBtn" class="icon-btn composer-btn" title="Attach">＋</button>
+        <button id="giftBtn" class="icon-btn composer-btn gift-composer-btn hidden" title="Подарок">🎁</button><button id="attachBtn" class="icon-btn composer-btn" title="Attach">＋</button>
         <input id="mediaInput" type="file" accept="image/*,video/*" hidden>
         <textarea id="messageInput" rows="1" data-i18n-placeholder="chat.message" placeholder="Сообщение"></textarea>
         <div class="record-mode" aria-label="Recording type">
@@ -113,14 +113,17 @@
       <div class="setting-row"><div><b data-i18n="settings.theme">Тема</b><span data-i18n="settings.themeHint">Светлая или тёмная</span></div><div class="segmented"><button id="themeDark" data-i18n="settings.dark">Тёмная</button><button id="themeLight" data-i18n="settings.light">Светлая</button></div></div>
       <div class="setting-row"><div><b data-i18n="settings.language">Язык</b><span>Language</span></div><div class="segmented"><button id="langRu">Русский</button><button id="langEn">English</button></div></div>
       <div class="setting-row"><div><b>Аккаунты</b><span>Добавить ещё один аккаунт</span></div><button id="settingsAddAccount" class="small-primary">+ Добавить аккаунт</button></div>
+      <div class="setting-row support-setting"><div><b>Поддержка</b><span>Проблема, жалоба или покупка клубничек</span></div><button id="openSupport" class="small-primary">Обратиться в поддержку</button></div>
+      <div class="setting-row berry-setting"><div><b>Баланс</b><span>Клубнички для подарков</span></div><div id="settingsBerryBalance" class="berry-balance">0🍓</div></div>
     </div>
   </div>
 </section>
 
 <div id="profileModal" class="modal hidden"><div class="modal-card profile-card">
   <div class="modal-head"><div><h2 data-i18n="profile.title">Профиль</h2><p data-i18n="profile.subtitle">Данные аккаунта</p></div><button class="icon-btn modal-close" data-close="profileModal">×</button></div>
-  <div class="profile-main"><button id="avatarButton" class="avatar avatar-xl">205</button><input id="avatarInput" type="file" accept="image/*" hidden><div class="profile-id"><b id="profileName">@user</b><span id="profilePhone">+7...</span></div></div>
+  <div class="profile-main"><button id="avatarButton" class="avatar avatar-xl">205</button><input id="avatarInput" type="file" accept="image/*" hidden><div class="profile-id"><b id="profileName">@user</b><span id="profilePhone">+7...</span><strong id="profileBerryBalance" class="berry-balance">0🍓</strong></div></div>
   <div class="profile-form"><label><span>Username</span><div class="input-action"><input id="profileUsername"><button id="saveUsername" class="small-primary" data-i18n="common.save">Сохранить</button></div></label><label class="bio-label"><span>О себе</span><textarea id="profileBio" maxlength="200" rows="4" placeholder="Расскажите немного о себе"></textarea><small><span id="bioCount">0</span>/200</small></label></div>
+  <div class="gift-profile-section"><div class="section-title"><b>Мои подарки</b><span class="gift-hint">Нажми на подарок, чтобы поставить возле ника</span></div><div id="myGifts" class="profile-gifts"></div></div>
   <div class="account-section"><div class="section-title"><b data-i18n="profile.accounts">Аккаунты</b><button id="addAccount" class="text-btn" data-i18n="profile.addAccount">+ Добавить аккаунт</button></div><div id="accountList" class="account-list"></div></div>
 </div></div>
 
@@ -142,7 +145,7 @@
 <div id="userProfileModal" class="modal hidden"><div class="modal-card profile-card public-profile-card">
   <div class="modal-head"><div><h2>Профиль</h2><p>Пользователь 205chating</p></div><button class="icon-btn modal-close" data-close="userProfileModal">×</button></div>
   <div class="profile-main"><div id="viewUserAvatar" class="avatar avatar-xl">U</div><div class="profile-id"><b id="viewUserName">@user</b><span id="viewUserPhone">+7...</span></div></div>
-  <div class="public-bio"><b>О себе</b><p id="viewUserBio">—</p></div>
+  <div class="public-bio"><b>О себе</b><p id="viewUserBio">—</p></div><div class="gift-profile-section public-gifts-section"><div class="section-title"><b>Подарки</b></div><div id="viewUserGifts" class="profile-gifts"></div></div>
 </div></div>
 
 <div id="channelProfileModal" class="modal hidden"><div class="modal-card profile-card channel-profile-card">
@@ -155,11 +158,25 @@
 <div id="adminModal" class="modal hidden"><div class="modal-card admin-card">
   <div class="modal-head"><div><h2 data-i18n="admin.title">Панель администратора</h2><p data-i18n="admin.subtitle">Пользователи 205chating</p></div><button class="icon-btn modal-close" data-close="adminModal">×</button></div>
   <div class="notice" data-i18n="admin.passwordNotice">Пароли не отображаются: сервер хранит только защищённые bcrypt-хеши.</div>
-  <div class="admin-actions"><button id="adminChannelBtn" class="secondary">205chat: настройки канала</button><button id="refreshAdminBtn" class="secondary">Обновить список</button></div>
-  <div class="table-wrap"><table><thead><tr><th data-i18n="admin.user">Пользователь</th><th data-i18n="admin.phone">Телефон</th><th data-i18n="admin.status">Статус</th><th data-i18n="admin.verified">Галочка</th><th data-i18n="admin.role">Роль</th></tr></thead><tbody id="usersTable"></tbody></table></div>
+  <div class="admin-actions"><button id="adminChannelBtn" class="secondary">205chat: настройки канала</button><button id="adminSupportBtn" class="secondary">Поддержка</button><button id="refreshAdminBtn" class="secondary">Обновить список</button></div>
+  <div class="table-wrap"><table><thead><tr><th data-i18n="admin.user">Пользователь</th><th data-i18n="admin.phone">Телефон</th><th data-i18n="admin.status">Статус</th><th data-i18n="admin.verified">Галочка</th><th data-i18n="admin.role">Роль</th><th>🍓 Баланс / выдать</th></tr></thead><tbody id="usersTable"></tbody></table></div>
+  <div class="admin-purchases"><div class="section-title"><b>Покупки клубничек</b><button id="refreshPurchases" class="text-btn">Обновить</button></div><div id="purchaseList" class="purchase-list"></div></div>
+</div></div>
+
+
+<div id="giftModal" class="modal hidden"><div class="modal-card gift-modal-card">
+  <div class="modal-head"><div><h2>Подарок</h2><p>Подарки можно отправлять только в личных сообщениях</p></div><button class="icon-btn modal-close" data-close="giftModal">×</button></div>
+  <div class="gift-balance-line">Баланс: <b id="giftBerryBalance">0🍓</b></div>
+  <div id="giftCatalog" class="gift-grid"></div>
+  <div id="giftCompose" class="gift-compose hidden"><div id="selectedGiftPreview" class="selected-gift-preview"></div><label><span>Письмо к подарку <small><span id="giftLetterCount">0</span>/50</small></span><textarea id="giftLetter" maxlength="50" rows="3" placeholder="Напиши несколько слов…"></textarea></label><button id="sendGift" class="primary wide">Подарить</button></div>
+</div></div>
+
+<div id="supportInfoModal" class="modal hidden"><div class="modal-card small-card">
+  <div class="modal-head"><div><h2>Клубнички 🍓</h2><p>Покупка через чат поддержки</p></div><button class="icon-btn modal-close" data-close="supportInfoModal">×</button></div>
+  <div id="berryPackages" class="berry-packages"></div>
 </div></div>
 
 <script src="/socket.io/socket.io.js"></script>
-<script src="app.js"></script>
+<script src="app.js?v=8"></script>
 </body>
 </html>
