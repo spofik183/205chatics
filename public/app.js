@@ -102,6 +102,7 @@ function syncMeUI(){
   $('#profileBio').value=me.bio||''; $('#bioCount').textContent=String((me.bio||'').length);
   setAvatar($('#meAvatar'),me); setAvatar($('#mobileProfile'),me); setAvatar($('#avatarButton'),me);
   $('#adminBtn').classList.toggle('hidden',!me.isAdmin);
+  $('#sideAdmin')?.classList.toggle('hidden',!me.isAdmin);
   rememberAccount(me,token);
   renderAccounts();
 }
@@ -266,10 +267,15 @@ function setRecordMode(mode){ if(mediaRecorder?.state==='recording')return; reco
 $('#modeVoice').onclick=()=>setRecordMode('voice'); $('#modeVideo').onclick=()=>setRecordMode('video');
 
 function updateRecordClock(){
-  const sec=Math.floor((Date.now()-recordStarted)/1000);
+  const elapsed=Math.max(0,Date.now()-recordStarted);
+  const sec=Math.floor(elapsed/1000);
   const text=`${String(Math.floor(sec/60)).padStart(2,'0')}:${String(sec%60).padStart(2,'0')}`;
-  $('#recordTime').textContent=text; $('#videoTime').textContent=text;
-  if(recordMode==='video'&&sec>=59)stopRecording(true);
+  $('#recordTime').textContent=text;
+  if(recordMode==='video'){
+    const progress=Math.min(1,elapsed/59000);
+    $('#videoSquareFrame')?.style.setProperty('--record-progress',`${progress*360}deg`);
+    if(elapsed>=59000)stopRecording(true);
+  }
 }
 async function startRecording(){
   if(mediaRecorder?.state==='recording')return stopRecording(true);
@@ -289,7 +295,7 @@ async function startRecording(){
     if(recordMode==='voice'){
       $('#recordLabel').textContent=lang==='ru'?'Запись голосового…':'Recording voice…'; $('#recordingBar').classList.remove('hidden');
     }else{
-      $('#cameraPreview').srcObject=recordStream; $('#videoRecorder').classList.remove('hidden'); document.body.classList.add('video-recording');
+      $('#videoSquareFrame')?.style.setProperty('--record-progress','0deg'); $('#cameraPreview').srcObject=recordStream; $('#videoRecorder').classList.remove('hidden'); document.body.classList.add('video-recording');
     }
   }catch(err){ console.error(err); toast(lang==='ru'?'Разреши доступ к микрофону/камере':'Allow microphone/camera access'); stopTracks(); }
 }
@@ -385,6 +391,9 @@ async function openAdmin(){
   }catch(err){toast(err.message)}
 }
 $('#adminBtn').onclick=openAdmin;
+$('#sideAdmin').onclick=()=>{ $('#sideMenu').classList.add('hidden'); $('#sidebar').classList.remove('mobile-open'); openAdmin(); };
+$('#refreshAdminBtn').onclick=openAdmin;
+$('#adminChannelBtn').onclick=()=>{ closeModal('adminModal'); openChatProfile(); };
 
 function messageBelongsCurrent(m){
   if(!currentPeer)return m.chatType!=='private';

@@ -54,3 +54,44 @@ html,body{width:100%;max-width:100%;overscroll-behavior:none;-webkit-text-size-a
   .messages,.composer-area,.chat-head{max-width:100vw;box-sizing:border-box}
   .composer textarea{font-size:16px!important}
 }
+
+
+/* v7 refinements */
+.app{height:100dvh;min-height:0;overflow:hidden}
+.chat-panel{height:100%;min-height:0;overflow:hidden}
+.chat-head,.pinned-bar,.typing,.composer-area{flex-shrink:0}
+.messages{flex:1 1 0;min-height:0;overflow-y:auto;overflow-x:hidden}
+.composer-area{position:relative;z-index:20;background:var(--bg)}
+
+/* wider and flatter message cards */
+.msg{max-width:min(780px,90%);margin-bottom:10px}
+.bubble{padding:7px 16px;min-width:118px;min-height:0;border-radius:14px 14px 14px 5px}
+.mine .bubble{border-radius:14px 14px 5px 14px}
+.name{margin-bottom:3px}
+.text{line-height:1.34}
+.message-meta{margin-top:4px}
+.reactions{margin-top:5px}
+
+/* monochrome pinned marker */
+.pin-icon{filter:grayscale(1);opacity:.68;font-family:"Segoe UI Symbol","Arial Unicode MS",sans-serif}
+
+/* square video: progress runs around the square, no numeric timer */
+.video-recorder{z-index:440!important;background:transparent!important;border:0!important;box-shadow:none!important;padding:0!important;width:min(360px,78vw)!important}
+.video-square-frame{--record-progress:0deg;position:relative;padding:3px;border-radius:20px;background:conic-gradient(from -90deg,var(--accent) 0deg,var(--accent) var(--record-progress),rgba(255,140,66,.12) var(--record-progress),rgba(255,140,66,.12) 360deg);box-shadow:0 24px 80px rgba(0,0,0,.4);transition:background .08s linear}
+.video-square-frame video{display:block;width:100%;aspect-ratio:1/1;object-fit:cover;border-radius:17px!important;background:#000}
+.video-recorder-info{margin-top:8px;padding:8px 10px!important;border:1px solid var(--line);border-radius:12px;background:var(--panel);box-shadow:0 12px 34px rgba(0,0,0,.22)}
+body.video-recording::before{z-index:410;background:rgba(8,9,10,.16);backdrop-filter:blur(7px);-webkit-backdrop-filter:blur(7px)}
+body.video-recording .composer-area{z-index:430}
+body.video-recording .composer{box-shadow:0 14px 40px rgba(0,0,0,.22)}
+
+.admin-actions{display:flex;gap:8px;margin:0 0 12px;flex-wrap:wrap}.admin-actions .secondary{padding:9px 12px}
+
+@media(max-width:760px){
+  .msg{max-width:96%}.bubble{padding:7px 13px;min-width:104px}
+  .chat-panel{height:100dvh;min-height:0;overflow:hidden}
+  .messages{min-height:0;flex:1 1 0}
+  .composer-area{flex:0 0 auto;z-index:20}
+  body.video-recording .composer-area{z-index:430}
+  .video-recorder{width:min(330px,86vw)!important}
+  .admin-actions{display:grid;grid-template-columns:1fr}
+}

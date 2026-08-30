@@ -46,6 +46,7 @@
       <button id="sideProfile" class="side-profile-row"><div id="meAvatar" class="avatar">205</div><div><b id="meName">@user</b><span id="mePhone">+7...</span></div></button>
       <button id="sideAddContact" class="side-menu-item">＋ <span>Добавить контакт</span></button>
       <button id="sideSettings" class="side-menu-item">⚙ <span>Настройки</span></button>
+      <button id="sideAdmin" class="side-menu-item hidden">◇ <span>Панель администратора</span></button>
     </div>
 
     <div class="search-box"><span>⌕</span><input data-i18n-placeholder="common.search" placeholder="Поиск" disabled></div>
@@ -78,7 +79,7 @@
       <div class="chat-actions"></div>
     </header>
 
-    <div id="pinnedBar" class="pinned-bar hidden"><span class="pin-icon">⌖</span><div><b data-i18n="chat.pinned">Закреплённое сообщение</b><span id="pinnedText"></span></div></div>
+    <div id="pinnedBar" class="pinned-bar hidden"><span class="pin-icon">📌</span><div><b data-i18n="chat.pinned">Закреплённое сообщение</b><span id="pinnedText"></span></div></div>
     <div id="messages" class="messages"></div>
     <div id="typing" class="typing"></div>
 
@@ -97,7 +98,7 @@
         <button id="send" class="send-btn">➤</button>
       </div>
       <div id="recordingBar" class="recording-bar hidden"><span class="record-dot"></span><span id="recordTime">00:00</span><span id="recordLabel">Запись голосового…</span><button id="cancelRecord" class="text-btn" data-i18n="common.cancel">Отмена</button></div>
-      <div id="videoRecorder" class="video-recorder hidden"><video id="cameraPreview" autoplay muted playsinline></video><div class="video-recorder-info"><span><b>▣</b> <span id="videoTime">00:00</span> / 00:59</span><button id="cancelVideo" class="text-btn" data-i18n="common.cancel">Отмена</button></div></div>
+      <div id="videoRecorder" class="video-recorder hidden"><div id="videoSquareFrame" class="video-square-frame"><video id="cameraPreview" autoplay muted playsinline></video></div><div class="video-recorder-info"><span><b>▣</b> Видео-квадрат</span><button id="cancelVideo" class="text-btn" data-i18n="common.cancel">Отмена</button></div></div>
     </div>
   </main>
 </section>
@@ -154,6 +155,7 @@
 <div id="adminModal" class="modal hidden"><div class="modal-card admin-card">
   <div class="modal-head"><div><h2 data-i18n="admin.title">Панель администратора</h2><p data-i18n="admin.subtitle">Пользователи 205chating</p></div><button class="icon-btn modal-close" data-close="adminModal">×</button></div>
   <div class="notice" data-i18n="admin.passwordNotice">Пароли не отображаются: сервер хранит только защищённые bcrypt-хеши.</div>
+  <div class="admin-actions"><button id="adminChannelBtn" class="secondary">205chat: настройки канала</button><button id="refreshAdminBtn" class="secondary">Обновить список</button></div>
   <div class="table-wrap"><table><thead><tr><th data-i18n="admin.user">Пользователь</th><th data-i18n="admin.phone">Телефон</th><th data-i18n="admin.status">Статус</th><th data-i18n="admin.verified">Галочка</th><th data-i18n="admin.role">Роль</th></tr></thead><tbody id="usersTable"></tbody></table></div>
 </div></div>
 

@@ -1,22 +1,11 @@
-# 205chating v6
+# 205chating v7
 
-Realtime messenger on Node.js + Express + Socket.IO.
+Обновление интерфейса чата, записи видео-квадрата, закреплений и панели администратора.
 
-## v6
-- registration agreement checkbox
-- channel profile for 205chat with admin avatar/description/chat-clear controls
-- user profiles from chat header and avatars
-- centered square-video recording preview
-- smoother animations and mobile safe-area fixes
-- hamburger account menu
-- full-screen Settings page with Add account
-- orange verification badges
-- user bio up to 200 characters
-
-## Run
-```bash
-npm install
-npm start
-```
-
-Railway uses `process.env.PORT`; the server binds to `0.0.0.0`.
+## v7
+- Видео-квадрат: фон размывается, но квадрат и нижняя панель сообщения остаются чёткими.
+- Оранжевый прогресс вокруг квадрата до 59 секунд, цифровой таймер убран.
+- Сообщения шире и ниже.
+- Панель ввода закреплена в layout и не уезжает при длинной истории.
+- Закрепление отображается монохромным 📌.
+- Панель администратора снова доступна из бокового меню и содержит управление галочками/админами, статусы и быстрый переход к настройкам 205chat.

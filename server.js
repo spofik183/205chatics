@@ -285,4 +285,4 @@ io.on('connection',socket=>{
   });
 });
 
-ensureAdmin().then(()=>server.listen(PORT,'0.0.0.0',()=>console.log(`205chating v5 running on port ${PORT}`)));
+ensureAdmin().then(()=>server.listen(PORT,'0.0.0.0',()=>console.log(`205chating v7 running on port ${PORT}`)));
