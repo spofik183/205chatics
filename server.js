@@ -44,7 +44,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 function defaultDb(){
   return {
     users: [], messages: [], gifts: [], purchases: [], supportThreads: {},
-    giftCatalog: GIFT_CATALOG.map((g,i)=>({...g,id:`seed-${g.key}`,type:'gift',totalSupply:999999,remaining:999999,createdAt:new Date().toISOString(),seed:true})),
+    giftCatalog: [],
     channel: { name:'205chat', avatarUrl:'', description:'Общий чат 205chating', verified:true }
   };
 }
@@ -52,8 +52,9 @@ function loadDb(){
   try{
     const parsed = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
     parsed.users ||= []; parsed.messages ||= []; parsed.gifts ||= []; parsed.purchases ||= []; parsed.supportThreads ||= {};
-    parsed.giftCatalog ||= GIFT_CATALOG.map(g=>({...g,id:`seed-${g.key}`,type:'gift',totalSupply:999999,remaining:999999,createdAt:new Date().toISOString(),seed:true}));
-    parsed.giftCatalog = parsed.giftCatalog.map(g=>({id:g.id||crypto.randomUUID(),key:g.key||g.id||crypto.randomUUID(),name:String(g.name||'Подарок'),price:Math.max(1,Math.trunc(Number(g.price)||1)),image:g.image||'',type:g.type==='nft'?'nft':'gift',totalSupply:Math.max(1,Math.trunc(Number(g.totalSupply)||999999)),remaining:Math.max(0,Math.trunc(Number(g.remaining ?? g.totalSupply)||0)),createdAt:g.createdAt||new Date().toISOString(),seed:!!g.seed}));
+    parsed.giftCatalog ||= [];
+    // v10: базовых подарков больше нет. Рынок полностью создаёт администратор.
+    parsed.giftCatalog = parsed.giftCatalog.filter(g=>!g.seed).map(g=>({id:g.id||crypto.randomUUID(),key:g.key||g.id||crypto.randomUUID(),name:String(g.name||'Подарок'),price:Math.max(1,Math.trunc(Number(g.price)||1)),image:g.image||'',type:g.type==='nft'?'nft':'gift',totalSupply:Math.max(1,Math.trunc(Number(g.totalSupply)||1)),remaining:Math.max(0,Math.trunc(Number(g.remaining ?? g.totalSupply)||0)),createdAt:g.createdAt||new Date().toISOString(),releaseAt:g.releaseAt||null,createdBy:g.createdBy||null}));
     parsed.channel ||= {name:'205chat',avatarUrl:'',description:'Общий чат 205chating',verified:true};
     parsed.channel.name='205chat'; parsed.channel.verified=true; parsed.channel.avatarUrl ||= ''; parsed.channel.description ||= 'Общий чат 205chating';
     for(const u of parsed.users){
@@ -175,8 +176,18 @@ app.delete('/api/channel/messages',auth,adminOnly,(req,res)=>{
 
 app.post('/api/upload',auth,upload.single('file'),(req,res)=>{
   if(!req.file)return res.status(400).json({error:'Файл не выбран'});
-  const mime=req.file.mimetype||'';
-  const type=mime.startsWith('image/')?'image':mime.startsWith('video/')?'video':mime.startsWith('audio/')?'audio':'file';
+  let mime=req.file.mimetype||'';
+  const ext=path.extname(req.file.originalname||req.file.filename||'').toLowerCase();
+  // Некоторые мобильные браузеры отправляют запись MediaRecorder как octet-stream.
+  if(!mime||mime==='application/octet-stream'){
+    if(['.webm','.mp4','.mov','.m4v'].includes(ext)) mime='video/'+(ext==='.webm'?'webm':'mp4');
+    else if(['.ogg','.opus','.webm','.m4a','.mp3','.wav'].includes(ext)) mime=ext==='.webm'?'audio/webm':`audio/${ext.slice(1)}`;
+  }
+  let type=mime.startsWith('image/')?'image':mime.startsWith('video/')?'video':mime.startsWith('audio/')?'audio':'file';
+  // square-*.webm/mp4 всегда считается видео, voice-* — аудио.
+  const original=String(req.file.originalname||'').toLowerCase();
+  if(original.startsWith('square-')) type='video';
+  if(original.startsWith('voice-')) type='audio';
   if(type==='file'){fs.unlink(req.file.path,()=>{});return res.status(400).json({error:'Можно отправлять только фото, видео и голосовые сообщения'})}
   res.json({url:`/uploads/${req.file.filename}`,type,mime,name:String(req.file.originalname||'').slice(0,120),size:req.file.size});
 });
@@ -227,14 +238,14 @@ app.get('/api/messages',auth,(req,res)=>{
 });
 
 // Gifts + strawberry currency
-app.get('/api/gifts/catalog',auth,(_req,res)=>res.json({catalog:db.giftCatalog.map(g=>({...g,soldOut:g.remaining<=0}))}));
+app.get('/api/gifts/catalog',auth,(_req,res)=>{const now=Date.now();res.json({catalog:db.giftCatalog.map(g=>{const releaseAt=g.releaseAt||null;const released=!releaseAt||new Date(releaseAt).getTime()<=now;return {...g,releaseAt,released,upcoming:!released,soldOut:g.remaining<=0};})})});
 app.get('/api/gifts/mine',auth,(req,res)=>{
   const gifts=db.gifts.filter(g=>g.receiverId===req.user.id).slice().reverse().map(g=>({...giftSummary(g.id),letter:g.letter||'',createdAt:g.createdAt,sender:cleanUser(db.users.find(x=>x.id===g.senderId)||{id:null,username:'Пользователь',phone:''})}));
   res.json({gifts,featuredGiftId:req.user.featuredGiftId||null,balance:req.user.strawberries||0});
 });
 app.post('/api/gifts/send',auth,(req,res)=>{
   const recipient=db.users.find(u=>u.id===String(req.body.recipientId||'')); if(!recipient||recipient.id===req.user.id)return res.status(400).json({error:'Подарок можно отправить только собеседнику'});
-  const def=giftDef(String(req.body.giftKey||'')); if(!def)return res.status(400).json({error:'Подарок не найден'}); if((Number(def.remaining)||0)<=0)return res.status(400).json({error:'Подарок закончился на рынке'});
+  const def=giftDef(String(req.body.giftKey||'')); if(!def)return res.status(400).json({error:'Подарок не найден'}); if(def.releaseAt&&new Date(def.releaseAt).getTime()>Date.now())return res.status(400).json({error:'Этот подарок ещё не вышел на рынок'}); if((Number(def.remaining)||0)<=0)return res.status(400).json({error:'Подарок закончился на рынке'});
   const letter=String(req.body.letter||'').trim().slice(0,50); req.user.strawberries=Math.max(0,Number(req.user.strawberries)||0);
   if(req.user.strawberries<def.price)return res.status(400).json({error:`Не хватает клубничек: нужно ${def.price}🍓`});
   req.user.strawberries-=def.price; def.remaining=Math.max(0,(Number(def.remaining)||0)-1); const issued=(Number(def.totalSupply)||0)-def.remaining;
@@ -298,27 +309,29 @@ app.get('/api/admin/support/:userId/messages',auth,adminOnly,(req,res)=>{const u
 app.post('/api/admin/support/:userId/messages',auth,adminOnly,(req,res)=>{const u=db.users.find(x=>x.id===req.params.userId);if(!u)return res.status(404).json({error:'Пользователь не найден'});const text=String(req.body.text||'').trim();if(!text)return res.status(400).json({error:'Напишите ответ'});const t=getThread(u.id,true);t.humanJoined=true;const m=pushSupport(u.id,'admin',text);saveDb();emitSupportUpdate(u.id);res.json({message:serializeSupportMessage(m,req.user,u)});});
 
 // Admin gift/NFT market
-app.get('/api/admin/gifts',auth,adminOnly,(_req,res)=>res.json({catalog:db.giftCatalog.slice().reverse()}));
+app.get('/api/admin/gifts',auth,adminOnly,(_req,res)=>res.json({catalog:db.giftCatalog.slice().sort((a,b)=>String(b.createdAt).localeCompare(String(a.createdAt)))}));
 app.post('/api/admin/gifts',auth,adminOnly,upload.single('image'),(req,res)=>{
   if(!req.file)return res.status(400).json({error:'Загрузите изображение'});
   if(!req.file.mimetype.startsWith('image/')){fs.unlink(req.file.path,()=>{});return res.status(400).json({error:'Нужно изображение'})}
   const name=String(req.body.name||'').trim().slice(0,60), price=Math.trunc(Number(req.body.price)), totalSupply=Math.trunc(Number(req.body.quantity)), type=req.body.type==='nft'?'nft':'gift';
+  const releaseRaw=String(req.body.releaseAt||'').trim(); let releaseAt=null;
+  if(releaseRaw){const d=new Date(releaseRaw);if(Number.isNaN(d.getTime()))return res.status(400).json({error:'Некорректная дата выхода'});releaseAt=d.toISOString();}
   if(name.length<2)return res.status(400).json({error:'Введите название'});
-  if(!Number.isFinite(price)||price<1||price>1000000)return res.status(400).json({error:'Цена от 1 до 1000000🍓'});
-  if(!Number.isFinite(totalSupply)||totalSupply<1||totalSupply>1000000)return res.status(400).json({error:'Количество от 1 до 1000000'});
+  if(!Number.isFinite(price)||price<1)return res.status(400).json({error:'Цена должна быть больше 0'});
+  if(!Number.isFinite(totalSupply)||totalSupply<1)return res.status(400).json({error:'Количество должно быть больше 0'});
   const id=crypto.randomUUID(), key='market-'+id;
-  const item={id,key,name,price,image:`/uploads/${req.file.filename}`,type,totalSupply,remaining:totalSupply,createdAt:new Date().toISOString(),createdBy:req.user.id};
+  const item={id,key,name,price,image:`/uploads/${req.file.filename}`,type,totalSupply,remaining:totalSupply,createdAt:new Date().toISOString(),releaseAt,createdBy:req.user.id};
   db.giftCatalog.push(item);saveDb();res.json({item});
 });
 app.patch('/api/admin/gifts/:id',auth,adminOnly,(req,res)=>{
   const g=db.giftCatalog.find(x=>x.id===req.params.id||x.key===req.params.id);if(!g)return res.status(404).json({error:'Подарок не найден'});
-  if(Object.prototype.hasOwnProperty.call(req.body,'price')){const v=Math.trunc(Number(req.body.price));if(v<1)return res.status(400).json({error:'Некорректная цена'});g.price=v}
-  if(Object.prototype.hasOwnProperty.call(req.body,'remaining')){const v=Math.trunc(Number(req.body.remaining));if(v<0)return res.status(400).json({error:'Некорректное количество'});g.remaining=v;g.totalSupply=Math.max(g.totalSupply||0,v)}
+  if(Object.prototype.hasOwnProperty.call(req.body,'price')){const v=Math.trunc(Number(req.body.price));if(!Number.isFinite(v)||v<1)return res.status(400).json({error:'Некорректная цена'});g.price=v}
+  if(Object.prototype.hasOwnProperty.call(req.body,'remaining')){const v=Math.trunc(Number(req.body.remaining));if(!Number.isFinite(v)||v<0)return res.status(400).json({error:'Некорректное количество'});g.remaining=v;g.totalSupply=Math.max(g.totalSupply||0,v)}
+  if(Object.prototype.hasOwnProperty.call(req.body,'releaseAt')){const raw=String(req.body.releaseAt||'').trim();if(!raw)g.releaseAt=null;else{const d=new Date(raw);if(Number.isNaN(d.getTime()))return res.status(400).json({error:'Некорректная дата выхода'});g.releaseAt=d.toISOString();}}
   saveDb();res.json({item:g});
 });
 app.delete('/api/admin/gifts/:id',auth,adminOnly,(req,res)=>{
   const i=db.giftCatalog.findIndex(x=>x.id===req.params.id||x.key===req.params.id);if(i<0)return res.status(404).json({error:'Подарок не найден'});
-  const item=db.giftCatalog[i]; if(item.seed)return res.status(400).json({error:'Базовый подарок нельзя удалить, но можно обнулить остаток'});
   db.giftCatalog.splice(i,1);saveDb();res.json({ok:true});
 });
 
@@ -337,7 +350,27 @@ app.get('/api/strawberries/purchases/mine',auth,(req,res)=>res.json({purchases:d
 app.get('/api/admin/users',auth,adminOnly,(req,res)=>res.json({users:db.users.map(adminUser)}));
 app.patch('/api/admin/users/:id/verified',auth,adminOnly,(req,res)=>{const u=db.users.find(x=>x.id===req.params.id);if(!u)return res.status(404).json({error:'Пользователь не найден'});if(isRootAdmin(u))return res.status(400).json({error:'Галочка главного администратора постоянная'});u.verified=!!req.body.verified;saveDb();io.emit('user-updated',cleanUser(u));res.json({user:adminUser(u)});});
 app.patch('/api/admin/users/:id/admin',auth,adminOnly,(req,res)=>{const u=db.users.find(x=>x.id===req.params.id);if(!u)return res.status(404).json({error:'Пользователь не найден'});if(isRootAdmin(u))return res.status(400).json({error:'Нельзя изменить роль главного администратора'});u.isAdmin=!!req.body.isAdmin;if(u.isAdmin)u.verified=true;saveDb();io.emit('user-updated',cleanUser(u));res.json({user:adminUser(u)});});
-app.post('/api/admin/users/:id/strawberries',auth,adminOnly,(req,res)=>{const u=db.users.find(x=>x.id===req.params.id);if(!u)return res.status(404).json({error:'Пользователь не найден'});const amount=Math.trunc(Number(req.body.amount));if(!Number.isFinite(amount)||amount===0||Math.abs(amount)>1000000)return res.status(400).json({error:'Введите количество от -1000000 до 1000000, кроме 0'});u.strawberries=Math.max(0,(Number(u.strawberries)||0)+amount);saveDb();io.emit('user-updated',cleanUser(u));res.json({user:adminUser(u)});});
+app.post('/api/admin/users/:id/strawberries',auth,adminOnly,(req,res)=>{const u=db.users.find(x=>x.id===req.params.id);if(!u)return res.status(404).json({error:'Пользователь не найден'});const amount=Math.trunc(Number(req.body.amount));if(!Number.isFinite(amount)||amount===0)return res.status(400).json({error:'Введите целое количество, кроме 0'});u.strawberries=Math.max(0,(Number(u.strawberries)||0)+amount);saveDb();io.emit('user-updated',cleanUser(u));res.json({user:adminUser(u)});});
+app.get('/api/admin/users/search',auth,adminOnly,(req,res)=>{
+  const q=String(req.query.q||'').trim().toLowerCase(); const phone=normalizePhone(q);
+  const users=db.users.filter(u=>!q||u.username.toLowerCase().includes(q.replace(/^@/,''))||u.phone.includes(phone||q)).map(adminUser);
+  res.json({users});
+});
+app.get('/api/admin/audit/users',auth,adminOnly,(req,res)=>{
+  const q=String(req.query.q||'').trim().toLowerCase(); const phone=normalizePhone(q);
+  const users=db.users.filter(u=>!q||u.username.toLowerCase().includes(q.replace(/^@/,''))||u.phone.includes(phone||q)).map(cleanUser);
+  res.json({users});
+});
+app.get('/api/admin/audit/conversations/:userId',auth,adminOnly,(req,res)=>{
+  const user=db.users.find(u=>u.id===req.params.userId);if(!user)return res.status(404).json({error:'Пользователь не найден'});
+  const map=new Map(); for(const m of db.messages){if((m.chatType||'global')!=='private')continue;if(m.userId!==user.id&&m.recipientId!==user.id)continue;const peerId=m.userId===user.id?m.recipientId:m.userId;const peer=db.users.find(u=>u.id===peerId);if(!peer)continue;const prev=map.get(peerId)||{peer:cleanUser(peer),count:0,lastAt:'',lastText:''};prev.count++;if(!prev.lastAt||String(m.createdAt)>prev.lastAt){prev.lastAt=m.createdAt;prev.lastText=m.text||({image:'Фото',video:'Видео',audio:'Голосовое',gift:'Подарок'}[m.type]||'Сообщение');}map.set(peerId,prev);}
+  res.json({user:cleanUser(user),conversations:[...map.values()].sort((a,b)=>String(b.lastAt).localeCompare(String(a.lastAt)))});
+});
+app.get('/api/admin/audit/messages/:a/:b',auth,adminOnly,(req,res)=>{
+  const a=db.users.find(u=>u.id===req.params.a),b=db.users.find(u=>u.id===req.params.b);if(!a||!b)return res.status(404).json({error:'Пользователь не найден'});
+  const messages=db.messages.filter(m=>(m.chatType||'global')==='private'&&((m.userId===a.id&&m.recipientId===b.id)||(m.userId===b.id&&m.recipientId===a.id))).slice(-500).map(m=>serializeMessage(m,req.user));
+  res.json({a:cleanUser(a),b:cleanUser(b),messages});
+});
 app.get('/api/admin/purchases',auth,adminOnly,(req,res)=>{const purchases=db.purchases.slice().reverse().map(p=>({...p,user:cleanUser(db.users.find(u=>u.id===p.userId)||{id:null,username:'Удалён',phone:''})}));res.json({purchases,paymentPhone:PAYMENT_PHONE});});
 app.post('/api/admin/purchases/:id/approve',auth,adminOnly,(req,res)=>{const p=db.purchases.find(x=>x.id===req.params.id);if(!p)return res.status(404).json({error:'Заявка не найдена'});if(!['pending','paid'].includes(p.status))return res.status(400).json({error:'Заявка уже обработана'});const u=db.users.find(x=>x.id===p.userId);if(!u)return res.status(404).json({error:'Пользователь не найден'});u.strawberries=(Number(u.strawberries)||0)+p.berries;p.status='approved';p.updatedAt=new Date().toISOString();p.approvedBy=req.user.id;saveDb();io.emit('user-updated',cleanUser(u));res.json({purchase:p,user:cleanUser(u)});});
 app.post('/api/admin/purchases/:id/reject',auth,adminOnly,(req,res)=>{const p=db.purchases.find(x=>x.id===req.params.id);if(!p)return res.status(404).json({error:'Заявка не найдена'});if(!['pending','paid'].includes(p.status))return res.status(400).json({error:'Заявка уже обработана'});p.status='rejected';p.updatedAt=new Date().toISOString();saveDb();res.json({purchase:p});});
@@ -366,4 +399,4 @@ io.on('connection',socket=>{
   socket.on('disconnect',()=>{const count=Math.max(0,(onlineSockets.get(u.id)||1)-1);if(count)onlineSockets.set(u.id,count);else{onlineSockets.delete(u.id);u.online=false;saveDb();io.emit('presence',{id:u.id,online:false})}});
 });
 
-ensureAdmin().then(()=>server.listen(PORT,'0.0.0.0',()=>console.log(`205chating v9 running on port ${PORT}`)));
+ensureAdmin().then(()=>server.listen(PORT,'0.0.0.0',()=>console.log(`205chating v10 running on port ${PORT}`)));

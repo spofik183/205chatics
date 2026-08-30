@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
   <meta name="theme-color" content="#171717">
   <title>205chating</title>
-  <link rel="stylesheet" href="style.css?v=9">
+  <link rel="stylesheet" href="style.css?v=10">
 </head>
 <body>
 <div id="toast" class="toast"></div>
@@ -30,7 +30,7 @@
         <label><span>Username</span><input id="username" autocomplete="username" placeholder="@username" required></label>
         <label><span data-i18n="auth.phone">Номер телефона</span><input id="phone" inputmode="tel" autocomplete="tel" placeholder="+79991234567" required></label>
         <label><span data-i18n="auth.password">Пароль</span><input id="password" type="password" minlength="6" autocomplete="new-password" placeholder="••••••" required></label>
-        <label class="terms-row"><input id="termsAccept" type="checkbox" required><span>Я принимаю пользовательское соглашение: создатель сервиса не несёт ответственности за действия и содержимое пользователей в чатах. Данные пользователей обрабатываются конфиденциально.</span></label>
+        <label class="terms-row"><input id="termsAccept" type="checkbox" required><span>Я принимаю пользовательское соглашение: создатель сервиса не несёт ответственности за действия и содержимое пользователей в чатах. Данные пользователей обрабатываются конфиденциально; для модерации уполномоченные администраторы могут просматривать переписки.</span></label>
         <button class="primary wide" data-i18n="auth.submitRegister">Создать аккаунт</button>
       </form>
     </div>
@@ -49,7 +49,7 @@
       <button id="sideAdmin" class="side-menu-item hidden">◇ <span>Панель администратора</span></button>
     </div>
 
-    <div class="search-box"><span>⌕</span><input data-i18n-placeholder="common.search" placeholder="Поиск" disabled></div>
+    <div class="search-box"><span>⌕</span><input id="sidebarSearch" data-i18n-placeholder="common.search" placeholder="Поиск контактов"></div>
 
     <button id="globalChat" class="chat-item active" data-peer="">
       <div id="channelAvatarSide" class="avatar room">205</div>
@@ -127,7 +127,7 @@
 
 <section id="giftMarketPage" class="settings-page hidden sub-page gift-market-page">
   <div class="settings-page-head"><button id="closeGiftMarket" class="icon-btn">←</button><div><h2>Рынок подарков</h2><p id="giftMarketPeer">Подарок другу</p></div><div class="market-balance" id="marketBalance">0🍓</div></div>
-  <div class="settings-page-body gift-market-body"><div class="market-filter"><button class="active" data-market-filter="all">Все</button><button data-market-filter="gift">Подарки</button><button data-market-filter="nft">NFT</button></div><div id="giftCatalog" class="market-grid"></div><div id="giftCompose" class="market-compose hidden"><button id="closeGiftCompose" class="market-compose-close">×</button><div id="selectedGiftPreview" class="selected-gift-preview"></div><label><span>Письмо <small><span id="giftLetterCount">0</span>/50</small></span><textarea id="giftLetter" maxlength="50" rows="3" placeholder="Напиши несколько слов…"></textarea></label><button id="sendGift" class="primary wide">Подарить</button></div></div>
+  <div class="settings-page-body gift-market-body"><div class="market-filter market-sort-row"><select id="marketSort"><option value="newest">Сначала новые</option><option value="price_desc">От дорогого к дешёвому</option><option value="price_asc">От дешёвого к дорогому</option><option value="upcoming">Ещё не вышли</option><option value="nft">NFT</option><option value="all">Все</option></select></div><div id="giftCatalog" class="market-grid"></div><div id="giftCompose" class="market-compose hidden"><button id="closeGiftCompose" class="market-compose-close">×</button><div id="selectedGiftPreview" class="selected-gift-preview"></div><label><span>Письмо <small><span id="giftLetterCount">0</span>/50</small></span><textarea id="giftLetter" maxlength="50" rows="3" placeholder="Напиши несколько слов…"></textarea></label><button id="sendGift" class="primary wide">Подарить</button></div></div>
 </section>
 
 <div id="profileModal" class="modal hidden"><div class="modal-card profile-card">
@@ -166,16 +166,28 @@
 </div></div>
 
 <div id="adminModal" class="modal hidden"><div class="modal-card admin-card">
-  <div class="modal-head"><div><h2 data-i18n="admin.title">Панель администратора</h2><p data-i18n="admin.subtitle">Пользователи 205chating</p></div><button class="icon-btn modal-close" data-close="adminModal">×</button></div>
-  <div class="notice" data-i18n="admin.passwordNotice">Пароли не отображаются: сервер хранит только защищённые bcrypt-хеши.</div>
-  <div class="admin-actions"><button id="adminChannelBtn" class="secondary">205chat: настройки канала</button><button id="adminSupportBtn" class="secondary">Поддержка</button><button id="refreshAdminBtn" class="secondary">Обновить список</button></div>
-  <div class="table-wrap"><table><thead><tr><th data-i18n="admin.user">Пользователь</th><th data-i18n="admin.phone">Телефон</th><th data-i18n="admin.status">Статус</th><th data-i18n="admin.verified">Галочка</th><th data-i18n="admin.role">Роль</th><th>🍓 Баланс / выдать</th></tr></thead><tbody id="usersTable"></tbody></table></div>
-  <div class="admin-purchases"><div class="section-title"><b>Покупки клубничек</b><button id="refreshPurchases" class="text-btn">Обновить</button></div><div id="purchaseList" class="purchase-list"></div></div>
-  <div class="admin-market"><div class="section-title"><b>Рынок подарков и NFT</b><button id="refreshMarketAdmin" class="text-btn">Обновить</button></div><form id="adminGiftForm" class="admin-gift-form"><label class="admin-gift-upload"><span>Изображение</span><input id="adminGiftImage" type="file" accept="image/*" required></label><input id="adminGiftName" placeholder="Название" maxlength="60" required><select id="adminGiftType"><option value="gift">Подарок</option><option value="nft">NFT</option></select><input id="adminGiftPrice" type="number" min="1" placeholder="Цена 🍓" required><input id="adminGiftQuantity" type="number" min="1" placeholder="Кол-во на рынке" required><button class="small-primary" type="submit">Создать</button></form><div id="adminMarketList" class="admin-market-list"></div></div>
+  <div class="modal-head"><div><h2>Панель администратора</h2><p>Управление 205chating</p></div><button class="icon-btn modal-close" data-close="adminModal">×</button></div>
+  <div class="admin-tabs"><button class="active" data-admin-tab="users">Пользователи</button><button data-admin-tab="gifts">Подарки и NFT</button></div>
+  <div id="adminUsersTab" class="admin-tab-panel">
+    <div class="notice">Пароли не отображаются: сервер хранит только защищённые bcrypt-хеши.</div>
+    <div class="admin-actions"><button id="adminChannelBtn" class="secondary">205chat: настройки канала</button><button id="adminSupportBtn" class="secondary">Поддержка</button><button id="adminAuditBtn" class="secondary">Контакты</button><button id="refreshAdminBtn" class="secondary">Обновить список</button></div>
+    <div class="admin-user-search"><span>⌕</span><input id="adminUserSearch" placeholder="Поиск по @username или номеру"></div>
+    <div class="table-wrap"><table><thead><tr><th>Пользователь</th><th>Телефон</th><th>Статус</th><th>Галочка</th><th>Роль</th><th>🍓 Баланс / выдать</th></tr></thead><tbody id="usersTable"></tbody></table></div>
+    <div class="admin-purchases"><div class="section-title"><b>Покупки клубничек</b><button id="refreshPurchases" class="text-btn">Обновить</button></div><div id="purchaseList" class="purchase-list"></div></div>
+  </div>
+  <div id="adminGiftsTab" class="admin-tab-panel hidden">
+    <div class="section-title"><div><b>Создание подарков и NFT</b><span>Изначально рынок пуст — все позиции создаёт администратор</span></div><button id="refreshMarketAdmin" class="text-btn">Обновить</button></div>
+    <form id="adminGiftForm" class="admin-gift-form v10-gift-form"><label class="admin-gift-upload"><span>Изображение</span><input id="adminGiftImage" type="file" accept="image/*" required></label><input id="adminGiftName" placeholder="Название" maxlength="60" required><select id="adminGiftType"><option value="gift">Подарок</option><option value="nft">NFT</option></select><input id="adminGiftPrice" type="number" min="1" placeholder="Цена 🍓" required><input id="adminGiftQuantity" type="number" min="1" placeholder="Кол-во на рынке" required><label class="release-field"><span>Дата выхода</span><input id="adminGiftReleaseAt" type="datetime-local"></label><button class="small-primary" type="submit">Создать</button></form>
+    <div id="adminMarketList" class="admin-market-list"></div>
+  </div>
 </div></div>
 
+<section id="adminAuditPage" class="settings-page hidden sub-page admin-audit-page">
+  <div class="settings-page-head"><button id="closeAdminAudit" class="icon-btn">←</button><div><h2>Контакты</h2><p>Администратор: просмотр личных переписок</p></div></div>
+  <div class="settings-page-body admin-audit-body"><div class="audit-search"><span>⌕</span><input id="auditUserSearch" placeholder="Найти пользователя по @username или номеру"></div><div class="audit-columns"><div id="auditUsers" class="audit-list"></div><div id="auditConversations" class="audit-list"></div><div id="auditMessages" class="audit-messages"><div class="empty-state">Выберите пользователя, затем переписку.</div></div></div></div>
+</section>
 
 <script src="/socket.io/socket.io.js"></script>
-<script src="app.js?v=9"></script>
+<script src="app.js?v=10"></script>
 </body>
 </html>

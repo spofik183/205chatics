@@ -11,6 +11,9 @@ let pendingAvatarFile = null;
 let currentPeer = null;
 let currentPeerUser = null;
 let contacts = [];
+let contactSearch = "";
+let adminUsersCache = [];
+let auditSelectedUser = null;
 let replyTo = null;
 let recordMode = 'voice';
 let mediaRecorder = null;
@@ -147,7 +150,7 @@ async function loadContacts(){ try{ const d=await api('/api/contacts'); contacts
 async function openPeer(u){ currentPeer=u.id; currentPeerUser=u; replyTo=null; clearReply(); $('#sidebar').classList.remove('mobile-open'); $('#globalChat').classList.remove('active'); renderContacts(); updateChatHeader(); await loadMessages(); }
 $('#globalChat').onclick=async()=>{ currentPeer=null; currentPeerUser=null; replyTo=null; clearReply(); $('#globalChat').classList.add('active'); $('#sidebar').classList.remove('mobile-open'); renderContacts(); await refreshStats(); await loadMessages(); };
 $('#addContactBtn').onclick=()=>openModal('contactModal');
-$('#contactForm').onsubmit=async e=>{ e.preventDefault(); try{ const d=await api('/api/contacts',{method:'POST',body:JSON.stringify({query:$('#contactQuery').value})}); $('#contactQuery').value=''; closeModal('contactModal'); await loadContacts(); await openPeer(d.contact); toast(lang==='ru'?'Контакт добавлен':'Contact added'); }catch(err){toast(err.message)} };
+$('#contactForm').onsubmit=async e=>{ e.preventDefault(); try{ const d=await api('/api/contacts',{method:'POST',body:JSON.stringify({query:$('#contactQuery').value.trim()})}); $('#contactQuery').value=''; closeModal('contactModal'); await loadContacts(); await openPeer(d.contact); toast(lang==='ru'?'Контакт добавлен':'Contact added'); }catch(err){toast(err.message)} };
 
 function replyMarkup(m){ if(!m.replyTo)return ''; return `<div class="reply-preview"><b>@${escapeHtml(m.replyTo.sender||'user')}</b>${escapeHtml(m.replyTo.text||'')}</div>`; }
 function mediaMarkup(m){
@@ -292,7 +295,7 @@ async function startRecording(){
     recordCanceled=false; recordChunks=[];
     recordStream=await navigator.mediaDevices.getUserMedia(recordMode==='video'?{audio:true,video:{facingMode:'user',width:{ideal:720},height:{ideal:720}}}:{audio:true});
     let options={};
-    const preferred=recordMode==='video'?['video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm']:['audio/webm;codecs=opus','audio/webm'];
+    const preferred=recordMode==='video'?['video/mp4;codecs=h264,aac','video/mp4','video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm']:['audio/webm;codecs=opus','audio/webm','audio/mp4'];
     const mime=preferred.find(x=>MediaRecorder.isTypeSupported?.(x)); if(mime)options.mimeType=mime;
     mediaRecorder=new MediaRecorder(recordStream,options);
     mediaRecorder.ondataavailable=e=>{if(e.data?.size)recordChunks.push(e.data)};
@@ -311,7 +314,8 @@ function stopTracks(){ if(recordStream){recordStream.getTracks().forEach(t=>t.st
 function stopRecording(sendIt){
   if(mediaRecorder?.state!=='recording')return;
   recordCanceled=!sendIt;
-  mediaRecorder.stop();
+  try{mediaRecorder.requestData?.()}catch{}
+  try{mediaRecorder.stop()}catch(err){console.error(err);toast('Не удалось завершить запись');stopTracks();mediaRecorder=null;}
 }
 async function finishRecording(){
   clearInterval(recordTimer); recordTimer=null;
@@ -321,10 +325,11 @@ async function finishRecording(){
   if(recordCanceled||!chunks.length){recordCanceled=false;return;}
   try{
     toast(lang==='ru'?'Отправка записи…':'Sending recording…');
-    const blob=new Blob(chunks,{type:mime}); const ext=mime.includes('mp4')?'mp4':'webm'; const file=new File([blob],`${wasMode==='video'?'square':'voice'}-${Date.now()}.${ext}`,{type:mime});
+    const blob=new Blob(chunks,{type:mime}); if(!blob.size)throw new Error('Запись получилась пустой — попробуй ещё раз'); const ext=mime.includes('mp4')?'mp4':mime.includes('quicktime')?'mov':'webm'; const file=new File([blob],`${wasMode==='video'?'square':'voice'}-${Date.now()}.${ext}`,{type:mime});
     const up=await uploadFile(file);
-    socket?.emit('send-message',{type:wasMode==='video'?'video':'audio',mediaUrl:up.url,fileName:up.name,mime:up.mime,recipientId:currentPeer||null,replyTo:replyTo?.id||null});
-    clearReply();
+    if(!socket?.connected)throw new Error('Нет соединения с сервером');
+    socket.emit('send-message',{type:wasMode==='video'?'video':'audio',mediaUrl:up.url,fileName:up.name,mime:up.mime||mime,recipientId:currentPeer||null,replyTo:replyTo?.id||null});
+    clearReply(); toast(wasMode==='video'?'Видео-квадрат отправлен':'Голосовое отправлено');
   }catch(err){toast(err.message)}
 }
 $('#recordBtn').onclick=()=>{ if(mediaRecorder?.state==='recording')return; startRecording(); };
@@ -386,24 +391,30 @@ $('#channelAvatarInput').onchange=async()=>{const file=$('#channelAvatarInput').
 $('#saveChannelDescription').onclick=async()=>{try{const d=await api('/api/channel',{method:'PATCH',body:JSON.stringify({description:$('#channelDescription').value})});channel=d.channel;toast('Описание сохранено')}catch(err){toast(err.message)}};
 $('#clearGlobalChat').onclick=async()=>{if(!confirm('Очистить ВСЕ сообщения в 205chat? Личные сообщения останутся.'))return;try{await api('/api/channel/messages',{method:'DELETE'});$('#messages').innerHTML='';closeModal('channelProfileModal');toast('205chat очищен')}catch(err){toast(err.message)}};
 
-async function openAdmin(){
-  try{
-    const d=await api('/api/admin/users'); const tb=$('#usersTable'); tb.innerHTML='';
-    d.users.forEach(u=>{
-      const tr=document.createElement('tr');
-      tr.innerHTML=`<td><b>@${escapeHtml(u.username)}</b> ${badge(u)}${u.isAdmin?'<br><small>Admin</small>':''}</td><td>${escapeHtml(u.phone)}</td><td><span class="status"><span class="dot ${u.online?'on':''}"></span>${u.online?(lang==='ru'?'онлайн':'online'):(lang==='ru'?'оффлайн':'offline')}</span></td><td><button class="verify-btn ${u.verified?'on':''}" data-id="${u.id}" data-v="${u.verified}" ${u.rootAdmin?'disabled':''}>${u.verified?'✓':'+'}</button></td><td><button class="admin-role-btn ${u.isAdmin?'on':''}" data-admin-id="${u.id}" data-a="${u.isAdmin}" ${u.rootAdmin?'disabled':''}>${u.isAdmin?'Admin':'User'}</button></td>`;
-      tb.appendChild(tr);
-    });
-    tb.querySelectorAll('.verify-btn:not([disabled])').forEach(b=>b.onclick=async()=>{try{await api('/api/admin/users/'+b.dataset.id+'/verified',{method:'PATCH',body:JSON.stringify({verified:b.dataset.v!=='true'})});await openAdmin()}catch(err){toast(err.message)}});
-    tb.querySelectorAll('.admin-role-btn:not([disabled])').forEach(b=>b.onclick=async()=>{try{await api('/api/admin/users/'+b.dataset.adminId+'/admin',{method:'PATCH',body:JSON.stringify({isAdmin:b.dataset.a!=='true'})});await openAdmin()}catch(err){toast(err.message)}});
-    openModal('adminModal');
-  }catch(err){toast(err.message)}
+function setAdminTab(tab){$$('[data-admin-tab]').forEach(b=>b.classList.toggle('active',b.dataset.adminTab===tab));$('#adminUsersTab').classList.toggle('hidden',tab!=='users');$('#adminGiftsTab').classList.toggle('hidden',tab!=='gifts');if(tab==='gifts')loadAdminMarket();}
+$$('[data-admin-tab]').forEach(b=>b.onclick=()=>setAdminTab(b.dataset.adminTab));
+function renderAdminUsers(list=adminUsersCache){
+  const tb=$('#usersTable');tb.innerHTML='';list.forEach(u=>{const tr=document.createElement('tr');tr.innerHTML=`<td><b>@${escapeHtml(u.username)}</b> ${badge(u)}${u.isAdmin?'<br><small>Admin</small>':''}</td><td>${escapeHtml(u.phone)}</td><td><span class="status"><span class="dot ${u.online?'on':''}"></span>${u.online?'онлайн':'оффлайн'}</span></td><td><button class="verify-btn ${u.verified?'on':''}" data-id="${u.id}" data-v="${u.verified}" ${u.rootAdmin?'disabled':''}>${u.verified?'✓':'+'}</button></td><td><button class="admin-role-btn ${u.isAdmin?'on':''}" data-admin-id="${u.id}" data-a="${u.isAdmin}" ${u.rootAdmin?'disabled':''}>${u.isAdmin?'Admin':'User'}</button></td><td><div class="berry-admin-cell"><b>${u.strawberries||0}🍓</b><input type="number" step="1" placeholder="любое количество" data-berry-input="${u.id}"><button class="verify-btn" data-berry-give="${u.id}">Выдать</button></div></td>`;tb.appendChild(tr)});
+  tb.querySelectorAll('.verify-btn[data-v]:not([disabled])').forEach(b=>b.onclick=async()=>{try{await api('/api/admin/users/'+b.dataset.id+'/verified',{method:'PATCH',body:JSON.stringify({verified:b.dataset.v!=='true'})});await openAdmin()}catch(err){toast(err.message)}});
+  tb.querySelectorAll('.admin-role-btn:not([disabled])').forEach(b=>b.onclick=async()=>{try{await api('/api/admin/users/'+b.dataset.adminId+'/admin',{method:'PATCH',body:JSON.stringify({isAdmin:b.dataset.a!=='true'})});await openAdmin()}catch(err){toast(err.message)}});
+  tb.querySelectorAll('[data-berry-give]').forEach(b=>b.onclick=async()=>{const id=b.dataset.berryGive;const input=tb.querySelector(`[data-berry-input="${CSS.escape(id)}"]`);const amount=Number(input.value);if(!Number.isFinite(amount)||!amount)return toast('Укажи количество');try{await api('/api/admin/users/'+id+'/strawberries',{method:'POST',body:JSON.stringify({amount})});toast('Баланс изменён');await openAdmin()}catch(err){toast(err.message)}});
 }
+async function openAdmin(){
+  try{const d=await api('/api/admin/users');adminUsersCache=d.users||[];renderAdminUsers();openModal('adminModal');setAdminTab('users');await loadPurchasesAdmin();}catch(err){toast(err.message)}
+}
+$('#adminUserSearch').oninput=e=>{const q=(e.target.value||'').trim().toLowerCase().replace(/^@/,'');renderAdminUsers(adminUsersCache.filter(u=>!q||u.username.toLowerCase().includes(q)||(u.phone||'').includes(q)));};
 $('#adminBtn').onclick=openAdmin;
 $('#sideAdmin').onclick=()=>{ $('#sideMenu').classList.add('hidden'); $('#sidebar').classList.remove('mobile-open'); openAdmin(); };
 $('#refreshAdminBtn').onclick=openAdmin;
 $('#adminChannelBtn').onclick=()=>{ closeModal('adminModal'); openChatProfile(); };
 
+async function openAdminAudit(){if(!me?.isAdmin)return;closeModal('adminModal');$('#adminAuditPage').classList.remove('hidden');$('#sidebar').classList.remove('mobile-open');auditSelectedUser=null;$('#auditUserSearch').value='';$('#auditConversations').innerHTML='<div class="empty-state">Выберите пользователя</div>';$('#auditMessages').innerHTML='<div class="empty-state">Выберите переписку</div>';await loadAuditUsers();}
+async function loadAuditUsers(q=''){try{const d=await api('/api/admin/audit/users'+(q?`?q=${encodeURIComponent(q)}`:''));const box=$('#auditUsers');box.innerHTML='';(d.users||[]).forEach(u=>{const b=document.createElement('button');b.className='audit-user-row';b.innerHTML=`<span class="avatar">${escapeHtml(initials(u))}</span><span><b>@${escapeHtml(u.username)}</b><small>${escapeHtml(u.phone||'')}</small></span>`;if(u.avatarUrl)b.querySelector('.avatar').style.backgroundImage=`url('${u.avatarUrl}')`;b.onclick=()=>loadAuditConversations(u);box.appendChild(b)});if(!box.children.length)box.innerHTML='<div class="empty-state">Не найдено</div>'}catch(e){toast(e.message)}}
+async function loadAuditConversations(u){auditSelectedUser=u;try{const d=await api('/api/admin/audit/conversations/'+encodeURIComponent(u.id));const box=$('#auditConversations');box.innerHTML=`<div class="audit-column-title">Переписки @${escapeHtml(u.username)}</div>`;(d.conversations||[]).forEach(c=>{const b=document.createElement('button');b.className='audit-conversation-row';b.innerHTML=`<b>@${escapeHtml(c.peer.username)}</b><span>${escapeHtml(c.lastText||'')}</span><small>${c.count} сообщений</small>`;b.onclick=()=>loadAuditMessages(u,c.peer);box.appendChild(b)});if((d.conversations||[]).length===0)box.innerHTML+='<div class="empty-state">Личных переписок нет</div>';$('#auditMessages').innerHTML='<div class="empty-state">Выберите переписку</div>'}catch(e){toast(e.message)}}
+async function loadAuditMessages(a,b){try{const d=await api(`/api/admin/audit/messages/${encodeURIComponent(a.id)}/${encodeURIComponent(b.id)}`);const box=$('#auditMessages');box.innerHTML=`<div class="audit-chat-title">@${escapeHtml(a.username)} ↔ @${escapeHtml(b.username)}</div>`;(d.messages||[]).forEach(m=>{const row=document.createElement('div');row.className='audit-message';row.innerHTML=`<b>@${escapeHtml(m.sender?.username||'user')}</b>${mediaMarkup(m)}${m.text?`<div>${escapeHtml(m.text)}</div>`:''}<small>${new Date(m.createdAt).toLocaleString()}</small>`;box.appendChild(row)});if(!(d.messages||[]).length)box.innerHTML+='<div class="empty-state">Сообщений нет</div>';box.scrollTop=box.scrollHeight}catch(e){toast(e.message)}}
+$('#auditUserSearch').oninput=e=>{clearTimeout(window.__auditTimer);window.__auditTimer=setTimeout(()=>loadAuditUsers(e.target.value),180)};
+$('#closeAdminAudit').onclick=()=>$('#adminAuditPage').classList.add('hidden');
+$('#adminAuditBtn').onclick=openAdminAudit;
 function messageBelongsCurrent(m){
   if(!currentPeer)return m.chatType!=='private';
   return m.chatType==='private'&&(m.sender?.id===currentPeer||m.recipientId===currentPeer||(m.mine&&m.recipientId===currentPeer));
@@ -508,7 +519,11 @@ function supportContactRow(){
 }
 function renderContacts(){
   const box=$('#contactsList'); if(!box)return; box.innerHTML='';
-  if(me?.isAdmin||supportVisible)box.appendChild(supportContactRow()); contacts.forEach(u=>box.appendChild(contactRow(u)));
+  const q=contactSearch.trim().toLowerCase().replace(/^@/,'');
+  if(me?.isAdmin&&!q){const audit=document.createElement('button');audit.className='contact-item admin-audit-contact';audit.innerHTML='<div class="avatar audit-avatar">⌕</div><div class="contact-copy"><b>Контакты</b><span>все пользователи и переписки</span></div>';audit.onclick=openAdminAudit;box.appendChild(audit);}
+  if((me?.isAdmin||supportVisible)&&(!q||'чат с ботом поддержка'.includes(q)))box.appendChild(supportContactRow());
+  contacts.filter(u=>!q||u.username.toLowerCase().includes(q)||(u.phone||'').includes(q)).forEach(u=>box.appendChild(contactRow(u)));
+  if(!box.children.length)box.innerHTML='<div class="empty-contact">Ничего не найдено</div>';
 }
 async function loadContacts(){
   try{
@@ -516,6 +531,7 @@ async function loadContacts(){
     if(currentPeer&&!supportMode)currentPeerUser=contacts.find(x=>x.id===currentPeer)||currentPeerUser; renderContacts(); updateChatHeader();
   }catch(err){toast(err.message)}
 }
+$('#sidebarSearch').oninput=e=>{contactSearch=e.target.value||'';renderContacts();};
 async function openPeer(u){ resetModes(); currentPeer=u.id; currentPeerUser=u; replyTo=null; clearReply(); $('#sidebar').classList.remove('mobile-open'); $('#globalChat').classList.remove('active'); renderContacts(); updateChatHeader(); await loadMessages(); }
 $('#globalChat').onclick=async()=>{ resetModes(); currentPeer=null; currentPeerUser=null; replyTo=null; clearReply(); $('#globalChat').classList.add('active'); $('#sidebar').classList.remove('mobile-open'); renderContacts(); await refreshStats(); await loadMessages(); };
 
@@ -577,16 +593,23 @@ async function send(){
 }
 $('#send').onclick=send;
 
-let marketFilter='all';
+let marketFilter='newest';
 async function loadGiftCatalog(){try{const d=await api('/api/gifts/catalog');giftCatalog=d.catalog||[];renderGiftCatalog()}catch(e){console.error(e)}}
 function renderGiftCatalog(){
   const box=$('#giftCatalog');if(!box)return;box.innerHTML='';
-  const list=giftCatalog.filter(g=>marketFilter==='all'||g.type===marketFilter);
+  const now=Date.now();let list=[...giftCatalog];
+  if(marketFilter==='upcoming')list=list.filter(g=>g.releaseAt&&new Date(g.releaseAt).getTime()>now);
+  else if(marketFilter==='nft')list=list.filter(g=>g.type==='nft'&&(!g.releaseAt||new Date(g.releaseAt).getTime()<=now));
+  else if(marketFilter!=='all')list=list.filter(g=>!g.releaseAt||new Date(g.releaseAt).getTime()<=now);
+  if(marketFilter==='price_desc')list.sort((a,b)=>b.price-a.price);
+  else if(marketFilter==='price_asc')list.sort((a,b)=>a.price-b.price);
+  else list.sort((a,b)=>String(b.createdAt).localeCompare(String(a.createdAt)));
   if(!list.length){box.innerHTML='<div class="empty-state">На рынке пока ничего нет</div>';return}
-  list.forEach(g=>{const b=document.createElement('button');b.className='market-gift-card'+(selectedGiftKey===g.key?' selected':'')+(g.soldOut?' soldout':'');const stock=g.totalSupply>=999999?'∞':g.remaining;b.innerHTML=`<div class="market-gift-image"><img src="${escapeHtml(g.image)}"><span class="market-type ${g.type==='nft'?'nft':''}">${g.type==='nft'?'NFT':'GIFT'}</span></div><div class="market-gift-copy"><b>${escapeHtml(g.name)}</b><span>${g.price}🍓</span><small>На рынке: ${stock}</small></div>`;b.disabled=!!g.soldOut;b.onclick=()=>{selectedGiftKey=g.key;renderGiftCatalog();renderGiftCompose()};box.appendChild(b)});
+  list.forEach(g=>{const upcoming=!!g.releaseAt&&new Date(g.releaseAt).getTime()>now;const b=document.createElement('button');b.className='market-gift-card'+(selectedGiftKey===g.key?' selected':'')+(g.soldOut?' soldout':'')+(upcoming?' upcoming':'');const stock=g.remaining;b.innerHTML=`<div class="market-gift-image"><img src="${escapeHtml(g.image)}"><span class="market-type ${g.type==='nft'?'nft':''}">${g.type==='nft'?'NFT':'GIFT'}</span></div><div class="market-gift-copy"><b>${escapeHtml(g.name)}</b><span>${g.price}🍓</span><small>${upcoming?'Выйдет: '+new Date(g.releaseAt).toLocaleString():'На рынке: '+stock}</small></div>`;b.disabled=!!g.soldOut||upcoming;b.onclick=()=>{selectedGiftKey=g.key;renderGiftCatalog();renderGiftCompose()};box.appendChild(b)});
 }
-function renderGiftCompose(){const g=giftCatalog.find(x=>x.key===selectedGiftKey);const area=$('#giftCompose');if(!g){area.classList.add('hidden');return}area.classList.remove('hidden');$('#selectedGiftPreview').innerHTML=`<img src="${escapeHtml(g.image)}"><div><b>${escapeHtml(g.name)}</b><span>${g.price}🍓 · ${g.type==='nft'?'NFT':'подарок'}</span><small>Осталось: ${g.totalSupply>=999999?'∞':g.remaining}</small></div>`;}
-async function openGiftMarket(){if(!currentPeer||supportMode)return;selectedGiftKey=null;$('#giftLetter').value='';$('#giftLetterCount').textContent='0';$('#marketBalance').textContent=`${me.strawberries||0}🍓`;$('#giftMarketPeer').textContent=currentPeerUser?`Подарок для @${currentPeerUser.username}`:'Подарок другу';await loadGiftCatalog();renderGiftCompose();$('#giftMarketPage').classList.remove('hidden')}
+function renderGiftCompose(){const g=giftCatalog.find(x=>x.key===selectedGiftKey);const area=$('#giftCompose');if(!g){area.classList.add('hidden');return}area.classList.remove('hidden');$('#selectedGiftPreview').innerHTML=`<img src="${escapeHtml(g.image)}"><div><b>${escapeHtml(g.name)}</b><span>${g.price}🍓 · ${g.type==='nft'?'NFT':'подарок'}</span><small>Осталось: ${g.remaining}</small></div>`;}
+async function openGiftMarket(){if(!currentPeer||supportMode)return;selectedGiftKey=null;$('#giftLetter').value='';$('#giftLetterCount').textContent='0';$('#marketBalance').textContent=`${me.strawberries||0}🍓`;$('#giftMarketPeer').textContent=currentPeerUser?`Подарок для @${currentPeerUser.username}`:'Подарок другу';marketFilter=$('#marketSort')?.value||'newest';await loadGiftCatalog();renderGiftCompose();$('#giftMarketPage').classList.remove('hidden')}
+$('#marketSort').onchange=e=>{marketFilter=e.target.value;selectedGiftKey=null;renderGiftCompose();renderGiftCatalog();};
 $('#giftBtn').onclick=openGiftMarket;
 $('#closeGiftMarket').onclick=()=>$('#giftMarketPage').classList.add('hidden');
 $('#closeGiftCompose').onclick=()=>{selectedGiftKey=null;renderGiftCatalog();renderGiftCompose()};
@@ -618,21 +641,13 @@ async function loadPurchasesAdmin(){
 }
 async function adminPurchase(id,action){try{await api('/api/admin/purchases/'+id+'/'+action,{method:'POST'});toast(action==='approve'?'Начислено 🍓':'Заявка отклонена');await loadPurchasesAdmin();await openAdmin()}catch(err){toast(err.message)}}
 async function loadAdminMarket(){
-  if(!me?.isAdmin)return;try{const d=await api('/api/admin/gifts');const box=$('#adminMarketList');box.innerHTML='';(d.catalog||[]).forEach(g=>{const row=document.createElement('div');row.className='admin-market-row';row.innerHTML=`<img src="${escapeHtml(g.image)}"><div><b>${escapeHtml(g.name)} <em>${g.type==='nft'?'NFT':'подарок'}</em></b><span>${g.price}🍓 · осталось ${g.totalSupply>=999999?'∞':g.remaining}/${g.totalSupply>=999999?'∞':g.totalSupply}</span></div>${g.seed?'':'<button class="verify-btn danger-market">Удалить</button>'}`;row.querySelector('.danger-market')?.addEventListener('click',async()=>{if(!confirm('Удалить позицию с рынка?'))return;try{await api('/api/admin/gifts/'+encodeURIComponent(g.id),{method:'DELETE'});await loadAdminMarket()}catch(e){toast(e.message)}});box.appendChild(row)});if(!box.children.length)box.innerHTML='<span class="gift-empty">Рынок пуст</span>'}catch(e){toast(e.message)}
+  if(!me?.isAdmin)return;try{const d=await api('/api/admin/gifts');const box=$('#adminMarketList');box.innerHTML='';(d.catalog||[]).forEach(g=>{const upcoming=g.releaseAt&&new Date(g.releaseAt).getTime()>Date.now();const row=document.createElement('div');row.className='admin-market-row';row.innerHTML=`<img src="${escapeHtml(g.image)}"><div><b>${escapeHtml(g.name)} <em>${g.type==='nft'?'NFT':'подарок'}</em></b><span>${g.price}🍓 · осталось ${g.remaining}/${g.totalSupply}</span><small>${upcoming?'Выход: '+new Date(g.releaseAt).toLocaleString():(g.releaseAt?'Уже на рынке':'Вышел сразу')}</small></div><div class="admin-market-actions"><button class="verify-btn schedule-market">Дата</button><button class="verify-btn danger-market">Удалить</button></div>`;row.querySelector('.schedule-market').onclick=async()=>{const current=g.releaseAt?(()=>{const d=new Date(g.releaseAt),z=n=>String(n).padStart(2,'0');return `${d.getFullYear()}-${z(d.getMonth()+1)}-${z(d.getDate())}T${z(d.getHours())}:${z(d.getMinutes())}`})():'';const v=prompt('Дата выхода в формате YYYY-MM-DDTHH:MM. Оставь пустым, чтобы выпустить сразу:',current);if(v===null)return;try{await api('/api/admin/gifts/'+encodeURIComponent(g.id),{method:'PATCH',body:JSON.stringify({releaseAt:v?new Date(v).toISOString():''})});await loadAdminMarket()}catch(e){toast(e.message)}};row.querySelector('.danger-market').onclick=async()=>{if(!confirm('Удалить подарок/NFT с рынка?'))return;try{await api('/api/admin/gifts/'+encodeURIComponent(g.id),{method:'DELETE'});await loadAdminMarket()}catch(e){toast(e.message)}};box.appendChild(row)});if(!box.children.length)box.innerHTML='<span class="gift-empty">Подарков пока нет. Создай первый выше.</span>'}catch(e){toast(e.message)}
 }
-$('#adminGiftForm').onsubmit=async e=>{e.preventDefault();const file=$('#adminGiftImage').files[0];if(!file)return toast('Выбери изображение');const fd=new FormData();fd.append('image',file);fd.append('name',$('#adminGiftName').value);fd.append('type',$('#adminGiftType').value);fd.append('price',$('#adminGiftPrice').value);fd.append('quantity',$('#adminGiftQuantity').value);try{await api('/api/admin/gifts',{method:'POST',body:fd});e.target.reset();toast('Добавлено на рынок');await loadAdminMarket()}catch(err){toast(err.message)}};
+$('#adminGiftForm').onsubmit=async e=>{e.preventDefault();const file=$('#adminGiftImage').files[0];if(!file)return toast('Выбери изображение');const fd=new FormData();fd.append('image',file);fd.append('name',$('#adminGiftName').value);fd.append('type',$('#adminGiftType').value);fd.append('price',$('#adminGiftPrice').value);fd.append('quantity',$('#adminGiftQuantity').value);{const rv=$('#adminGiftReleaseAt').value;fd.append('releaseAt',rv?new Date(rv).toISOString():'');}try{await api('/api/admin/gifts',{method:'POST',body:fd});e.target.reset();toast('Добавлено на рынок');await loadAdminMarket()}catch(err){toast(err.message)}};
 $('#refreshMarketAdmin').onclick=loadAdminMarket;
 
-async function openAdmin(){
-  try{
-    const d=await api('/api/admin/users');const tb=$('#usersTable');tb.innerHTML='';d.users.forEach(u=>{const tr=document.createElement('tr');tr.innerHTML=`<td><b>@${escapeHtml(u.username)}</b> ${badge(u)}${u.isAdmin?'<br><small>Admin</small>':''}</td><td>${escapeHtml(u.phone)}</td><td><span class="status"><span class="dot ${u.online?'on':''}"></span>${u.online?'онлайн':'оффлайн'}</span></td><td><button class="verify-btn ${u.verified?'on':''}" data-id="${u.id}" data-v="${u.verified}" ${u.rootAdmin?'disabled':''}>${u.verified?'✓':'+'}</button></td><td><button class="admin-role-btn ${u.isAdmin?'on':''}" data-admin-id="${u.id}" data-a="${u.isAdmin}" ${u.rootAdmin?'disabled':''}>${u.isAdmin?'Admin':'User'}</button></td><td><div class="berry-admin-cell"><b>${u.strawberries||0}🍓</b><input type="number" placeholder="+100 / -50" data-berry-input="${u.id}"><button class="verify-btn" data-berry-give="${u.id}">Выдать</button></div></td>`;tb.appendChild(tr)});
-    tb.querySelectorAll('.verify-btn[data-v]:not([disabled])').forEach(b=>b.onclick=async()=>{try{await api('/api/admin/users/'+b.dataset.id+'/verified',{method:'PATCH',body:JSON.stringify({verified:b.dataset.v!=='true'})});await openAdmin()}catch(err){toast(err.message)}});
-    tb.querySelectorAll('.admin-role-btn:not([disabled])').forEach(b=>b.onclick=async()=>{try{await api('/api/admin/users/'+b.dataset.adminId+'/admin',{method:'PATCH',body:JSON.stringify({isAdmin:b.dataset.a!=='true'})});await openAdmin()}catch(err){toast(err.message)}});
-    tb.querySelectorAll('[data-berry-give]').forEach(b=>b.onclick=async()=>{const id=b.dataset.berryGive;const input=tb.querySelector(`[data-berry-input="${CSS.escape(id)}"]`);const amount=Number(input.value);if(!amount)return toast('Укажи количество');try{await api('/api/admin/users/'+id+'/strawberries',{method:'POST',body:JSON.stringify({amount})});toast('Баланс изменён');await openAdmin()}catch(err){toast(err.message)}});
-    openModal('adminModal');await Promise.all([loadPurchasesAdmin(),loadAdminMarket()]);
-  }catch(err){toast(err.message)}
-}
-$('#adminBtn').onclick=openAdmin;$('#sideAdmin').onclick=()=>{$('#sideMenu').classList.add('hidden');$('#sidebar').classList.remove('mobile-open');openAdmin()};$('#refreshAdminBtn').onclick=openAdmin;$('#refreshPurchases').onclick=loadPurchasesAdmin;$('#adminSupportBtn').onclick=()=>{closeModal('adminModal');openSupportInbox()};
+$('#refreshPurchases').onclick=loadPurchasesAdmin;
+$('#adminSupportBtn').onclick=()=>{closeModal('adminModal');openSupportInbox()};
 
 function messageBelongsCurrent(m){if(supportMode)return false;if(!currentPeer)return m.chatType!=='private';return m.chatType==='private'&&(m.sender?.id===currentPeer||m.recipientId===currentPeer||(m.mine&&m.recipientId===currentPeer));}
 function connect(){
