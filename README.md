@@ -1,33 +1,39 @@
-# 205chating
+# 205chating v2
 
-Рабочий MVP realtime-мессенджера по ТЗ.
+Realtime messenger on Node.js + Express + Socket.IO.
 
-## Запуск
-1. Установите Node.js 18+.
-2. В папке проекта выполните:
-   npm install
-   npm start
-3. Откройте http://localhost:3000
+## Run locally
 
-## Администратор
-- Телефон: +7 777 777 77 77 (для входа можно вводить с пробелами)
-- Username: @админ67
-- Пароль: 220419
+```bash
+npm install
+npm start
+```
 
-## Возможности
-- Регистрация по телефону +7, username и паролю.
-- Вход по телефону или username.
-- Общий обязательный чат `205chat`.
-- Realtime через Socket.IO.
-- Онлайн/оффлайн.
-- Индикатор печати.
-- Анонимные сообщения.
-- Только админ видит реального автора анонимного сообщения.
-- Админ-панель со списком пользователей, телефонами, username, статусом и выдачей галочки.
-- Удаление своего сообщения; админ может удалить любое.
-- История хранится в `data/db.json`.
+Open `http://localhost:3000`.
 
-## Безопасность
-Пароли специально НЕ показываются администратору и НЕ хранятся открытым текстом. Они хешируются bcrypt. Это необходимое отличие от исходного ТЗ: хранить и показывать реальные пароли небезопасно.
+## Railway
 
-Для публикации в интернете дополнительно нужны HTTPS, нормальный JWT_SECRET через переменную окружения, rate limit, защита от спама и полноценная БД.
+- Start command: `npm start`
+- App binds to `0.0.0.0` and `process.env.PORT` automatically.
+- Add an environment variable `JWT_SECRET` with a long random value.
+
+## New in v2
+
+- dark/light theme
+- Russian/English UI
+- profile + editable username
+- avatar upload with review screen
+- local account switcher / add another account
+- photo and video messages
+- voice messages through microphone
+- responsive mobile layout
+- redesigned restrained UI
+- admin user list and verification management
+
+## Password security
+
+205chating stores only bcrypt password hashes. Plain-text passwords are never saved and are never shown in the admin panel.
+
+## Storage warning
+
+Uploads and `data/db.json` are stored on the local filesystem. Railway containers are not persistent storage, so for real users migrate users/messages to PostgreSQL and media to object storage (for example S3-compatible storage).

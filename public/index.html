@@ -1,58 +1,169 @@
 <!doctype html>
-<html lang="ru">
+<html lang="ru" data-theme="dark">
 <head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>205chating</title>
-<link rel="stylesheet" href="style.css">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#171717">
+  <title>205chating</title>
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<div id="toast"></div>
+<div id="toast" class="toast"></div>
+
 <section id="auth" class="auth-page">
-  <div class="brand"><div class="logo">205</div><h1>205chating</h1><p>Простой чат для своих.</p></div>
-  <div class="auth-card">
-    <div class="tabs"><button class="tab active" data-tab="login">Вход</button><button class="tab" data-tab="register">Регистрация</button></div>
-    <form id="loginForm" class="form active">
-      <label>Телефон или username<input id="login" placeholder="+7... или @name" required></label>
-      <label>Пароль<input id="loginPassword" type="password" placeholder="••••••" required></label>
-      <button class="primary">Войти</button>
-    </form>
-    <form id="registerForm" class="form">
-      <label>Номер телефона<input id="phone" placeholder="+79991234567" required></label>
-      <label>Username<input id="username" placeholder="@name" required></label>
-      <label>Пароль<input id="password" type="password" minlength="6" placeholder="Минимум 6 символов" required></label>
-      <button class="primary">Создать аккаунт</button>
-    </form>
+  <div class="auth-shell">
+    <div class="auth-brand">
+      <div class="logo-mark">205</div>
+      <div>
+        <h1>205chating</h1>
+        <p data-i18n="auth.subtitle">Общий чат без лишнего шума.</p>
+      </div>
+    </div>
+
+    <div class="auth-card">
+      <div class="auth-tabs">
+        <button class="auth-tab active" data-tab="login" data-i18n="auth.login">Вход</button>
+        <button class="auth-tab" data-tab="register" data-i18n="auth.register">Регистрация</button>
+      </div>
+
+      <form id="loginForm" class="auth-form active">
+        <label><span data-i18n="auth.usernameOrPhone">Username или номер телефона</span>
+          <input id="login" autocomplete="username" placeholder="@username / +7..." required>
+        </label>
+        <label><span data-i18n="auth.password">Пароль</span>
+          <input id="loginPassword" type="password" autocomplete="current-password" placeholder="••••••" required>
+        </label>
+        <button class="primary wide" data-i18n="auth.submitLogin">Войти</button>
+      </form>
+
+      <form id="registerForm" class="auth-form">
+        <label><span>Username</span>
+          <input id="username" autocomplete="username" placeholder="@username" required>
+        </label>
+        <label><span data-i18n="auth.phone">Номер телефона</span>
+          <input id="phone" inputmode="tel" autocomplete="tel" placeholder="+79991234567" required>
+        </label>
+        <label><span data-i18n="auth.password">Пароль</span>
+          <input id="password" type="password" minlength="6" autocomplete="new-password" placeholder="••••••" required>
+        </label>
+        <button class="primary wide" data-i18n="auth.submitRegister">Создать аккаунт</button>
+      </form>
+    </div>
   </div>
 </section>
 
 <section id="app" class="app hidden">
   <aside class="sidebar">
-    <header class="side-head"><div class="mini-logo">205</div><div><b>205chating</b><small id="meLabel"></small></div><button id="logout" class="icon-btn">↪</button></header>
-    <div class="search"><span>⌕</span><input placeholder="Поиск" disabled></div>
-    <div class="chat-row active"><div class="avatar orange">205</div><div class="chat-copy"><b>205chat</b><span id="lastPreview">Общий чат</span></div><span class="pin">●</span></div>
-    <button id="adminBtn" class="admin-link hidden">⚙ Панель администратора</button>
+    <div class="side-top">
+      <button id="openProfile" class="me-button">
+        <div id="meAvatar" class="avatar">205</div>
+        <div class="me-copy"><b id="meName">@user</b><span id="mePhone">+7...</span></div>
+      </button>
+      <button id="openSettings" class="icon-btn" aria-label="Settings">⚙</button>
+    </div>
+
+    <div class="search-box"><span>⌕</span><input data-i18n-placeholder="common.search" placeholder="Поиск" disabled></div>
+
+    <button class="chat-item active">
+      <div class="avatar room">205</div>
+      <div class="chat-item-copy"><b>205chat</b><span id="lastPreview" data-i18n="chat.global">Общий чат</span></div>
+      <span class="unread-dot"></span>
+    </button>
+
+    <div class="side-bottom">
+      <button id="adminBtn" class="plain-button hidden">Admin</button>
+      <button id="logout" class="plain-button danger" data-i18n="common.logout">Выйти</button>
+    </div>
   </aside>
-  <main class="chat">
-    <header class="chat-head"><div><b>205chat</b><span>общий чат · выйти нельзя</span></div><div class="head-actions">⌕ ⋮</div></header>
+
+  <main class="chat-panel">
+    <header class="chat-head">
+      <div class="chat-title-wrap">
+        <button id="mobileProfile" class="mobile-avatar avatar">205</button>
+        <div><b>205chat</b><span data-i18n="chat.subtitle">общий чат · покинуть нельзя</span></div>
+      </div>
+      <div class="chat-actions">
+        <button id="mobileSettings" class="icon-btn">⚙</button>
+      </div>
+    </header>
+
     <div id="messages" class="messages"></div>
     <div id="typing" class="typing"></div>
-    <div class="composer-wrap">
+
+    <div class="composer-area">
+      <div id="uploadPreview" class="upload-preview hidden"></div>
       <div class="composer">
-        <button class="icon-btn">＋</button>
-        <textarea id="messageInput" rows="1" placeholder="Сообщение"></textarea>
-        <label class="anon"><input id="anonymous" type="checkbox"><span>◐</span><em>Анонимно</em></label>
-        <button id="send" class="send">➤</button>
+        <button id="attachBtn" class="icon-btn composer-btn" title="Attach">＋</button>
+        <input id="mediaInput" type="file" accept="image/*,video/*" hidden>
+        <textarea id="messageInput" rows="1" data-i18n-placeholder="chat.message" placeholder="Сообщение"></textarea>
+        <label class="anonymous-toggle" title="Anonymous">
+          <input id="anonymous" type="checkbox"><span>◐</span><em data-i18n="chat.anonymous">Анонимно</em>
+        </label>
+        <button id="voiceBtn" class="icon-btn composer-btn" title="Voice">●</button>
+        <button id="send" class="send-btn">➤</button>
       </div>
+      <div id="recordingBar" class="recording-bar hidden"><span class="record-dot"></span><span id="recordTime">00:00</span><span data-i18n="chat.recording">Запись голосового…</span><button id="cancelRecord" class="text-btn" data-i18n="common.cancel">Отмена</button></div>
     </div>
   </main>
 </section>
 
-<div id="adminModal" class="modal hidden">
-  <div class="modal-card">
-    <div class="modal-head"><div><h2>Панель администратора</h2><p>Пользователи 205chating</p></div><button id="closeAdmin" class="icon-btn">×</button></div>
-    <div class="notice">Пароли защищены хешированием и не отображаются даже администратору.</div>
-    <div class="table-wrap"><table><thead><tr><th>Пользователь</th><th>Телефон</th><th>Статус</th><th>Галочка</th></tr></thead><tbody id="usersTable"></tbody></table></div>
+<div id="settingsModal" class="modal hidden">
+  <div class="modal-card small-card">
+    <div class="modal-head"><div><h2 data-i18n="settings.title">Настройки</h2><p data-i18n="settings.subtitle">Внешний вид и язык</p></div><button class="icon-btn modal-close" data-close="settingsModal">×</button></div>
+    <div class="settings-list">
+      <div class="setting-row"><div><b data-i18n="settings.theme">Тема</b><span data-i18n="settings.themeHint">Светлая или тёмная</span></div><div class="segmented"><button id="themeDark" data-i18n="settings.dark">Тёмная</button><button id="themeLight" data-i18n="settings.light">Светлая</button></div></div>
+      <div class="setting-row"><div><b data-i18n="settings.language">Язык</b><span>Language</span></div><div class="segmented"><button id="langRu">Русский</button><button id="langEn">English</button></div></div>
+    </div>
   </div>
 </div>
-<script src="/socket.io/socket.io.js"></script><script src="app.js"></script>
-</body></html>
+
+<div id="profileModal" class="modal hidden">
+  <div class="modal-card profile-card">
+    <div class="modal-head"><div><h2 data-i18n="profile.title">Профиль</h2><p data-i18n="profile.subtitle">Данные аккаунта</p></div><button class="icon-btn modal-close" data-close="profileModal">×</button></div>
+    <div class="profile-main">
+      <button id="avatarButton" class="avatar avatar-xl">205</button>
+      <input id="avatarInput" type="file" accept="image/*" hidden>
+      <div class="profile-id"><b id="profileName">@user</b><span id="profilePhone">+7...</span></div>
+    </div>
+    <div class="profile-form">
+      <label><span>Username</span><div class="input-action"><input id="profileUsername"><button id="saveUsername" class="small-primary" data-i18n="common.save">Сохранить</button></div></label>
+    </div>
+    <div class="account-section">
+      <div class="section-title"><b data-i18n="profile.accounts">Аккаунты</b><button id="addAccount" class="text-btn" data-i18n="profile.addAccount">+ Добавить аккаунт</button></div>
+      <div id="accountList" class="account-list"></div>
+    </div>
+  </div>
+</div>
+
+<div id="avatarReview" class="modal hidden">
+  <div class="modal-card photo-review-card">
+    <div class="photo-review-title"><h2 data-i18n="photo.title">Проверь фото</h2><p data-i18n="photo.subtitle">Оно будет отображаться в профиле</p></div>
+    <img id="avatarPreviewImg" class="avatar-preview" alt="Avatar preview">
+    <button id="confirmAvatar" class="primary wide" data-i18n="photo.good">Выглядит хорошо</button>
+    <button id="chooseAnotherAvatar" class="secondary wide" data-i18n="photo.new">Выбрать другое фото</button>
+  </div>
+</div>
+
+<div id="accountModal" class="modal hidden">
+  <div class="modal-card small-card">
+    <div class="modal-head"><div><h2 data-i18n="profile.addAccount">Добавить аккаунт</h2><p data-i18n="profile.addHint">Войдите в существующий аккаунт</p></div><button class="icon-btn modal-close" data-close="accountModal">×</button></div>
+    <form id="accountLoginForm" class="stack-form">
+      <label><span data-i18n="auth.usernameOrPhone">Username или номер телефона</span><input id="accountLogin" placeholder="@username / +7..." required></label>
+      <label><span data-i18n="auth.password">Пароль</span><input id="accountPassword" type="password" placeholder="••••••" required></label>
+      <button class="primary wide" data-i18n="auth.submitLogin">Войти</button>
+    </form>
+  </div>
+</div>
+
+<div id="adminModal" class="modal hidden">
+  <div class="modal-card admin-card">
+    <div class="modal-head"><div><h2 data-i18n="admin.title">Панель администратора</h2><p data-i18n="admin.subtitle">Пользователи 205chating</p></div><button class="icon-btn modal-close" data-close="adminModal">×</button></div>
+    <div class="notice" data-i18n="admin.passwordNotice">Пароли не отображаются: сервер хранит только защищённые bcrypt-хеши.</div>
+    <div class="table-wrap"><table><thead><tr><th data-i18n="admin.user">Пользователь</th><th data-i18n="admin.phone">Телефон</th><th data-i18n="admin.status">Статус</th><th data-i18n="admin.verified">Галочка</th></tr></thead><tbody id="usersTable"></tbody></table></div>
+  </div>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

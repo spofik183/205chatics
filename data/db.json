@@ -7,7 +7,7 @@
       "passwordHash": "$2a$10$Owpu7zi.kVNuZ2As2Ot9yObzKZciQgKrhaK4hvH3on.SylgjLCm3.",
       "isAdmin": true,
       "verified": true,
-      "online": true,
+      "online": false,
       "createdAt": "2026-08-30T09:44:31.591Z"
     },
     {
@@ -17,7 +17,7 @@
       "passwordHash": "$2a$10$wu1B7bXcXcewRiLY/A7V7e.qB5B/uGbRDGDvyAYMA2WC27GDmi9fa",
       "isAdmin": false,
       "verified": true,
-      "online": true,
+      "online": false,
       "createdAt": "2026-08-30T09:49:42.116Z"
     }
   ],
