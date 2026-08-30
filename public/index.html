@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>205chating</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="toast"></div>
+<section id="auth" class="auth-page">
+  <div class="brand"><div class="logo">205</div><h1>205chating</h1><p>Простой чат для своих.</p></div>
+  <div class="auth-card">
+    <div class="tabs"><button class="tab active" data-tab="login">Вход</button><button class="tab" data-tab="register">Регистрация</button></div>
+    <form id="loginForm" class="form active">
+      <label>Телефон или username<input id="login" placeholder="+7... или @name" required></label>
+      <label>Пароль<input id="loginPassword" type="password" placeholder="••••••" required></label>
+      <button class="primary">Войти</button>
+    </form>
+    <form id="registerForm" class="form">
+      <label>Номер телефона<input id="phone" placeholder="+79991234567" required></label>
+      <label>Username<input id="username" placeholder="@name" required></label>
+      <label>Пароль<input id="password" type="password" minlength="6" placeholder="Минимум 6 символов" required></label>
+      <button class="primary">Создать аккаунт</button>
+    </form>
+  </div>
+</section>
+
+<section id="app" class="app hidden">
+  <aside class="sidebar">
+    <header class="side-head"><div class="mini-logo">205</div><div><b>205chating</b><small id="meLabel"></small></div><button id="logout" class="icon-btn">↪</button></header>
+    <div class="search"><span>⌕</span><input placeholder="Поиск" disabled></div>
+    <div class="chat-row active"><div class="avatar orange">205</div><div class="chat-copy"><b>205chat</b><span id="lastPreview">Общий чат</span></div><span class="pin">●</span></div>
+    <button id="adminBtn" class="admin-link hidden">⚙ Панель администратора</button>
+  </aside>
+  <main class="chat">
+    <header class="chat-head"><div><b>205chat</b><span>общий чат · выйти нельзя</span></div><div class="head-actions">⌕ ⋮</div></header>
+    <div id="messages" class="messages"></div>
+    <div id="typing" class="typing"></div>
+    <div class="composer-wrap">
+      <div class="composer">
+        <button class="icon-btn">＋</button>
+        <textarea id="messageInput" rows="1" placeholder="Сообщение"></textarea>
+        <label class="anon"><input id="anonymous" type="checkbox"><span>◐</span><em>Анонимно</em></label>
+        <button id="send" class="send">➤</button>
+      </div>
+    </div>
+  </main>
+</section>
+
+<div id="adminModal" class="modal hidden">
+  <div class="modal-card">
+    <div class="modal-head"><div><h2>Панель администратора</h2><p>Пользователи 205chating</p></div><button id="closeAdmin" class="icon-btn">×</button></div>
+    <div class="notice">Пароли защищены хешированием и не отображаются даже администратору.</div>
+    <div class="table-wrap"><table><thead><tr><th>Пользователь</th><th>Телефон</th><th>Статус</th><th>Галочка</th></tr></thead><tbody id="usersTable"></tbody></table></div>
+  </div>
+</div>
+<script src="/socket.io/socket.io.js"></script><script src="app.js"></script>
+</body></html>

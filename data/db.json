@@ -1,0 +1,25 @@
+{
+  "users": [
+    {
+      "id": "9a5226f5-a98d-48f7-b3ec-fce7971eba4f",
+      "phone": "+77777777777",
+      "username": "админ67",
+      "passwordHash": "$2a$10$Owpu7zi.kVNuZ2As2Ot9yObzKZciQgKrhaK4hvH3on.SylgjLCm3.",
+      "isAdmin": true,
+      "verified": true,
+      "online": true,
+      "createdAt": "2026-08-30T09:44:31.591Z"
+    },
+    {
+      "id": "be3c5131-8ba8-4b0b-8ea0-fe8b603a135b",
+      "phone": "+79811292091",
+      "username": "daniks",
+      "passwordHash": "$2a$10$wu1B7bXcXcewRiLY/A7V7e.qB5B/uGbRDGDvyAYMA2WC27GDmi9fa",
+      "isAdmin": false,
+      "verified": true,
+      "online": true,
+      "createdAt": "2026-08-30T09:49:42.116Z"
+    }
+  ],
+  "messages": []
+}
