@@ -1,9 +1,11 @@
 {
   "name": "205chating",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "description": "205chating realtime messenger",
   "main": "server.js",
-  "scripts": { "start": "node server.js" },
+  "scripts": {
+    "start": "node server.js"
+  },
   "dependencies": {
     "bcryptjs": "^2.4.3",
     "express": "^4.21.2",
