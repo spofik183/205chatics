@@ -3,12 +3,15 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
-  <meta name="theme-color" content="#171717">
+  <meta name="theme-color" content="#101827">
+  <meta name="description" content="205chating — быстрый мессенджер с личными чатами, подарками и 205chat.">
   <title>205chating</title>
-  <link rel="stylesheet" href="style.css?v=12">
+  <link rel="stylesheet" href="style.css?v=14">
 </head>
 <body>
 <div id="toast" class="toast"></div>
+<div id="connectionBanner" class="connection-banner hidden" role="status">Нет соединения. Пытаемся подключиться…</div>
+<div id="startupOverlay" class="startup-overlay"><div class="startup-logo">205</div><div class="startup-copy"><b>205chating</b><span>подключаемся…</span></div></div>
 
 <section id="auth" class="auth-page">
   <div class="auth-shell">
@@ -116,6 +119,7 @@
       <div class="setting-row"><div><b>Аккаунты</b><span>Добавить ещё один аккаунт</span></div><button id="settingsAddAccount" class="small-primary">+ Добавить аккаунт</button></div><div class="setting-row"><div><b>Номер телефона</b><span>Кто видит номер в вашем профиле</span></div><label class="privacy-switch"><input id="hidePhoneSetting" type="checkbox"><span>Скрыть номер</span></label></div>
       <div class="setting-row support-setting"><div><b>Поддержка</b><span>Проблема, жалоба или вопрос по 205chating</span></div><button id="openSupport" class="small-primary">Обратиться в поддержку</button></div>
       <div class="setting-row berry-setting"><div><b>Баланс</b><span>Клубнички для подарков и NFT</span></div><div class="balance-actions"><div id="settingsBerryBalance" class="berry-balance">0🍓</div><button id="openBalance" class="small-primary">Пополнить</button></div></div>
+      <div class="setting-row app-info-row"><div><b>205chating Beta</b><span>Мягкий запуск · сообщайте об ошибках через поддержку</span></div><span class="version-pill">v14</span></div>
     </div>
   </div>
 </section>
@@ -191,6 +195,6 @@
 
 <div id="maintenanceOverlay" class="maintenance-overlay hidden"><div class="maintenance-copy"><h1>технический перерыв🔌</h1><p>скоро все заработает</p></div></div>
 <script src="/socket.io/socket.io.js"></script>
-<script src="app.js?v=13"></script>
+<script src="app.js?v=14"></script>
 </body>
 </html>

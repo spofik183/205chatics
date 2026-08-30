@@ -19,23 +19,39 @@ const DATA_FILE = path.join(DATA_DIR, 'db.json');
 const UPLOAD_DIR = path.join(DATA_DIR, 'uploads');
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
-const GIFT_CATALOG = [
-  { key:'monkey', name:'Обезьянка', price:25, image:'/gifts/monkey.jpg' },
-  { key:'dog', name:'Догги', price:35, image:'/gifts/dog.jpg' },
-  { key:'beer', name:'Кружка', price:45, image:'/gifts/beer.jpg' },
-  { key:'pinkbear', name:'Розовый мишка', price:60, image:'/gifts/pinkbear.jpg' },
-  { key:'socks', name:'Синие носки', price:75, image:'/gifts/socks.jpg' },
-  { key:'cat', name:'Котик', price:95, image:'/gifts/cat.jpg' },
-  { key:'frog', name:'Лягушонок', price:120, image:'/gifts/frog.jpg' },
-  { key:'liberty', name:'Свобода', price:160, image:'/gifts/liberty.jpg' },
-  { key:'bear', name:'Мишка 205', price:220, image:'/gifts/bear.jpg' }
-];
 const PURCHASE_PACKAGES = [
   { id:'s100', berries:100, rub:49 },
   { id:'s300', berries:300, rub:119 },
   { id:'s750', berries:750, rub:239 }
 ];
 const PAYMENT_PHONE = '+79811292091';
+const APP_VERSION = '14.0.0-beta';
+const IS_PROD = process.env.NODE_ENV === 'production';
+
+app.disable('x-powered-by');
+app.set('trust proxy', 1);
+app.use((req,res,next)=>{
+  res.setHeader('X-Content-Type-Options','nosniff');
+  res.setHeader('Referrer-Policy','same-origin');
+  res.setHeader('Permissions-Policy','camera=(self), microphone=(self), geolocation=()');
+  res.setHeader('Cross-Origin-Resource-Policy','same-origin');
+  if(req.path.startsWith('/api/'))res.setHeader('Cache-Control','no-store');
+  next();
+});
+
+function makeRateLimiter({windowMs=60000,max=60}={}){
+  const buckets=new Map();
+  return (req,res,next)=>{
+    const now=Date.now(); const key=req.ip||req.socket.remoteAddress||'unknown';
+    let b=buckets.get(key); if(!b||now-b.start>=windowMs)b={start:now,count:0};
+    b.count++; buckets.set(key,b);
+    if(b.count>max)return res.status(429).json({error:'Слишком много запросов. Попробуйте чуть позже.'});
+    if(buckets.size>5000)for(const [k,v] of buckets)if(now-v.start>=windowMs)buckets.delete(k);
+    next();
+  };
+}
+const authRateLimit=makeRateLimiter({windowMs:60000,max:20});
+const writeRateLimit=makeRateLimiter({windowMs:60000,max:180});
 
 app.use(express.json({ limit: '2mb' }));
 app.use('/uploads', express.static(UPLOAD_DIR, { maxAge: '1d' }));
@@ -71,7 +87,15 @@ function loadDb(){
   }catch{return defaultDb()}
 }
 let db = loadDb();
-function saveDb(){ fs.mkdirSync(DATA_DIR,{recursive:true}); fs.writeFileSync(DATA_FILE,JSON.stringify(db,null,2)); }
+function saveDb(){
+  fs.mkdirSync(DATA_DIR,{recursive:true});
+  const tmp=DATA_FILE+'.tmp'; const bak=DATA_FILE+'.bak';
+  try{
+    fs.writeFileSync(tmp,JSON.stringify(db,null,2));
+    if(fs.existsSync(DATA_FILE))try{fs.copyFileSync(DATA_FILE,bak)}catch{}
+    fs.renameSync(tmp,DATA_FILE);
+  }catch(err){try{if(fs.existsSync(tmp))fs.unlinkSync(tmp)}catch{};console.error('[db] save failed',err);throw err}
+}
 
 const ADMIN_PHONE = '+77777777777';
 const ADMIN_USERNAME = 'админ67';
@@ -119,11 +143,20 @@ const storage=multer.diskStorage({
   destination:(_r,_f,cb)=>cb(null,UPLOAD_DIR),
   filename:(_r,f,cb)=>cb(null,`${Date.now()}-${crypto.randomBytes(8).toString('hex')}${path.extname(f.originalname||'').toLowerCase().slice(0,8)}`)
 });
-const upload=multer({storage,limits:{fileSize:45*1024*1024}});
+const upload=multer({
+  storage,
+  limits:{fileSize:45*1024*1024,files:1},
+  fileFilter:(_req,file,cb)=>{
+    const mime=String(file.mimetype||'').toLowerCase();
+    if(mime.startsWith('image/')||mime.startsWith('video/')||mime.startsWith('audio/')||mime==='application/octet-stream')return cb(null,true);
+    cb(new Error('Недопустимый тип файла'));
+  }
+});
 
-app.get('/health',(_req,res)=>res.status(200).send('ok'));
+app.get('/health',(_req,res)=>res.status(200).json({ok:true,version:APP_VERSION,users:db.users.length}));
+app.get('/api/version',(_req,res)=>res.json({version:APP_VERSION,beta:true}));
 
-app.post('/api/register',async(req,res)=>{
+app.post('/api/register',authRateLimit,async(req,res)=>{
   const phone=normalizePhone(req.body.phone), username=normalizeUsername(req.body.username), password=String(req.body.password||'');
   if(req.body.acceptedTerms!==true)return res.status(400).json({error:'Нужно принять пользовательское соглашение'});
   if(!/^\+7\d{10}$/.test(phone))return res.status(400).json({error:'Введите номер в формате +7XXXXXXXXXX'});
@@ -134,7 +167,7 @@ app.post('/api/register',async(req,res)=>{
   const u={id:crypto.randomUUID(),phone,username,passwordHash:await bcrypt.hash(password,10),avatarUrl:'',bio:'',isAdmin:false,verified:false,online:false,contacts:[],strawberries:0,featuredGiftId:null,createdAt:new Date().toISOString()};
   db.users.push(u); saveDb(); io.emit('participants',db.users.length); res.json({token:tokenFor(u),user:cleanUser(u,u)});
 });
-app.post('/api/login',async(req,res)=>{
+app.post('/api/login',authRateLimit,async(req,res)=>{
   const login=String(req.body.login||'').trim(), password=String(req.body.password||'');
   const phone=normalizePhone(login), user=normalizeUsername(login).toLowerCase();
   const u=db.users.find(x=>x.phone===phone||x.username.toLowerCase()===user);
@@ -177,7 +210,7 @@ app.delete('/api/channel/messages',auth,adminOnly,(req,res)=>{
   db.messages=db.messages.filter(m=>(m.chatType||'global')==='private'); saveDb(); io.emit('global-chat-cleared'); res.json({ok:true});
 });
 
-app.post('/api/upload',auth,upload.single('file'),(req,res)=>{
+app.post('/api/upload',auth,writeRateLimit,upload.single('file'),(req,res)=>{
   if(!req.file)return res.status(400).json({error:'Файл не выбран'});
   let mime=req.file.mimetype||'';
   const ext=path.extname(req.file.originalname||req.file.filename||'').toLowerCase();
@@ -199,7 +232,7 @@ app.get('/api/stats',auth,(_req,res)=>res.json({participants:db.users.length}));
 app.get('/api/contacts',auth,(req,res)=>{
   req.user.contacts||=[]; const list=req.user.contacts.map(id=>db.users.find(u=>u.id===id)).filter(Boolean).map(u=>cleanUser(u,req.user)); res.json({contacts:list});
 });
-app.post('/api/contacts',auth,(req,res)=>{
+app.post('/api/contacts',auth,writeRateLimit,(req,res)=>{
   const q=String(req.body.query||'').trim(); const phone=normalizePhone(q), username=normalizeUsername(q).toLowerCase();
   const u=db.users.find(x=>x.id!==req.user.id&&(x.phone===phone||x.username.toLowerCase()===username));
   if(!u)return res.status(404).json({error:'Пользователь не найден'});
@@ -424,6 +457,19 @@ app.get('/api/admin/purchases',auth,adminOnly,(req,res)=>{const purchases=db.pur
 app.post('/api/admin/purchases/:id/approve',auth,adminOnly,(req,res)=>{const p=db.purchases.find(x=>x.id===req.params.id);if(!p)return res.status(404).json({error:'Заявка не найдена'});if(!['pending','paid'].includes(p.status))return res.status(400).json({error:'Заявка уже обработана'});const u=db.users.find(x=>x.id===p.userId);if(!u)return res.status(404).json({error:'Пользователь не найден'});u.strawberries=(Number(u.strawberries)||0)+p.berries;p.status='approved';p.updatedAt=new Date().toISOString();p.approvedBy=req.user.id;saveDb();io.emit('user-updated',cleanUser(u));res.json({purchase:p,user:cleanUser(u)});});
 app.post('/api/admin/purchases/:id/reject',auth,adminOnly,(req,res)=>{const p=db.purchases.find(x=>x.id===req.params.id);if(!p)return res.status(404).json({error:'Заявка не найдена'});if(!['pending','paid'].includes(p.status))return res.status(400).json({error:'Заявка уже обработана'});p.status='rejected';p.updatedAt=new Date().toISOString();saveDb();res.json({purchase:p});});
 
+
+app.use((err,req,res,next)=>{
+  if(res.headersSent)return next(err);
+  if(err instanceof multer.MulterError){
+    if(err.code==='LIMIT_FILE_SIZE')return res.status(413).json({error:'Файл слишком большой. Максимум 45 МБ.'});
+    return res.status(400).json({error:'Не удалось загрузить файл'});
+  }
+  if(err?.message==='Недопустимый тип файла')return res.status(400).json({error:err.message});
+  console.error('[http]',err);
+  res.status(500).json({error:'Внутренняя ошибка сервера'});
+});
+
+
 const onlineSockets=new Map();
 io.use((socket,next)=>{try{const p=jwt.verify(socket.handshake.auth?.token,JWT_SECRET);const u=db.users.find(x=>x.id===p.id);if(!u)return next(new Error('unauthorized'));socket.user=u;next()}catch{next(new Error('unauthorized'))}});
 function emitToViewers(event,m,payloadFactory){for(const s of io.sockets.sockets.values())if(canSeeMessage(m,s.user))s.emit(event,typeof payloadFactory==='function'?payloadFactory(s.user):payloadFactory);}
@@ -431,8 +477,10 @@ function addMutualContact(a,b){a.contacts||=[];b.contacts||=[];if(!a.contacts.in
 
 io.on('connection',socket=>{
   const u=socket.user; onlineSockets.set(u.id,(onlineSockets.get(u.id)||0)+1); u.online=true; saveDb(); io.emit('presence',{id:u.id,online:true}); io.emit('participants',db.users.length);
+  let messageWindowStart=Date.now(),messageCount=0;
   socket.on('typing',payload=>{const isTyping=typeof payload==='object'?!!payload.isTyping:!!payload;const peerId=typeof payload==='object'?(payload.peerId||null):null;socket.broadcast.emit('typing',{userId:u.id,username:u.username,isTyping,peerId});});
   socket.on('send-message',payload=>{
+    const now=Date.now(); if(now-messageWindowStart>10000){messageWindowStart=now;messageCount=0} if(++messageCount>35)return socket.emit('send-error',{error:'Слишком много сообщений. Подождите несколько секунд.'});
     const text=String(payload?.text||'').trim().slice(0,4000); const type=['text','image','video','audio'].includes(payload?.type)?payload.type:'text'; const mediaUrl=String(payload?.mediaUrl||'');
     if(type!=='text'&&!mediaUrl.startsWith('/uploads/'))return; if(type==='text'&&!text)return;
     let recipientId=payload?.recipientId||null; const recipient=recipientId?db.users.find(x=>x.id===recipientId):null; if(recipientId&&!recipient)return; if(recipient)addMutualContact(u,recipient);
@@ -448,4 +496,8 @@ io.on('connection',socket=>{
   socket.on('disconnect',()=>{const count=Math.max(0,(onlineSockets.get(u.id)||1)-1);if(count)onlineSockets.set(u.id,count);else{onlineSockets.delete(u.id);u.online=false;saveDb();io.emit('presence',{id:u.id,online:false})}});
 });
 
-ensureAdmin().then(()=>server.listen(PORT,'0.0.0.0',()=>console.log(`205chating v13 running on port ${PORT}`)));
+ensureAdmin().then(()=>server.listen(PORT,'0.0.0.0',()=>{
+  console.log(`205chating v14 soft-launch running on port ${PORT}`);
+  if(IS_PROD && JWT_SECRET==='205chating-change-this-secret-in-production')console.warn('[security] Set JWT_SECRET in Railway variables before public launch.');
+  if(IS_PROD)console.warn('[storage] data/db.json and uploads are local. Use persistent storage before scaling or accepting meaningful payment volume.');
+}));

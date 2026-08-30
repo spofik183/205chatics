@@ -186,7 +186,7 @@ function renderMessage(m,{append=true}={}){
   row.append(av,bubble);
   if(append)$('#messages').appendChild(row);
   observeMessage(row,m);
-  if(!currentPeer)$('#lastPreview').textContent=`${m.sender?.username||''}: ${compactText(m)}`.slice(0,44);
+  if(!currentPeer)$('#lastPreview').textContent=`@${m.sender?.username||''}: ${compactText(m)}`.slice(0,44);
   return row;
 }
 
@@ -561,7 +561,7 @@ function renderMessage(m,{append=true}={}){
   const bubble=document.createElement('div'); bubble.className='bubble'; const body=mediaMarkup(m)+(m.text?`<div class="text${m.type!=='text'?' caption':''}">${escapeHtml(m.text)}</div>`:'');
   bubble.innerHTML=`<button class="name name-button">@${escapeHtml(m.sender?.username||'Пользователь')}${badge(m.sender)}</button>${replyMarkup(m)}${body}${m.anonymousRealSender?`<div class="anon-real">@${escapeHtml(m.anonymousRealSender.username)} · ${escapeHtml(m.anonymousRealSender.phone)}</div>`:''}${reactionsMarkup(m)}<div class="message-meta"><span>${formatTime(m.createdAt)}</span>${currentPeer?'':`<span class="message-views"><span class="eye-icon">◉</span><span class="view-count">${m.views||0}</span></span>`}<button class="more-btn" aria-label="More">⋯</button></div>`;
   bubble.querySelector('.more-btn').onclick=e=>openMessageMenu(e.currentTarget,m); const nameBtn=bubble.querySelector('.name-button'); if(nameBtn&&m.sender?.id)nameBtn.onclick=()=>openUserProfile(m.sender); bubble.querySelectorAll('.reaction-chip').forEach(btn=>btn.onclick=()=>socket?.emit('react-message',{id:m.id,emoji:btn.dataset.emoji}));
-  row.append(av,bubble); if(append)$('#messages').appendChild(row); observeMessage(row,m); if(!currentPeer)$('#lastPreview').textContent=`${m.sender?.username||''}: ${compactText(m)}`.slice(0,44); return row;
+  row.append(av,bubble); if(append)$('#messages').appendChild(row); observeMessage(row,m); if(!currentPeer)$('#lastPreview').textContent=`@${m.sender?.username||''}: ${compactText(m)}`.slice(0,44); return row;
 }
 
 function renderSupportMessage(m){
@@ -757,3 +757,102 @@ connect=function(){
   socket.on('message',m=>{if(currentPeer&&m.chatType==='private'&&(m.sender?.id===currentPeer||m.recipientId===currentPeer||m.mine))setTimeout(loadChatStreak,80)});
   socket.on('streak-updated',x=>{if(currentPeer&&x.peerId===currentPeer)renderChatStreak(x.streak||0)});
 };
+
+// v14 — soft launch polish and resilience
+const V14_API_TIMEOUT = 20000;
+const v14BaseApi = api;
+api = async function(url,opt={}){
+  const controller=new AbortController();
+  const external=opt.signal;
+  const timer=setTimeout(()=>controller.abort(),V14_API_TIMEOUT);
+  if(external)external.addEventListener?.('abort',()=>controller.abort(),{once:true});
+  try{return await v14BaseApi(url,{...opt,signal:controller.signal})}
+  catch(err){
+    if(err?.name==='AbortError')throw new Error('Сервер отвечает слишком долго. Попробуйте ещё раз.');
+    if(!navigator.onLine)throw new Error('Нет подключения к интернету');
+    throw err;
+  }finally{clearTimeout(timer)}
+};
+
+function v14Toast(text,type=''){
+  const el=$('#toast'); el.classList.remove('error','success'); if(type)el.classList.add(type); toast(text);
+}
+function setBusy(button,busy,label='Подождите…'){
+  if(!button)return; if(busy){button.dataset.oldText=button.textContent;button.disabled=true;button.textContent=label}else{button.disabled=false;if(button.dataset.oldText)button.textContent=button.dataset.oldText;delete button.dataset.oldText}
+}
+function finishStartup(){setTimeout(()=>$('#startupOverlay')?.classList.add('done'),120)}
+function setConnectionState(state){
+  const b=$('#connectionBanner');if(!b)return;
+  if(state==='online'){b.textContent='Соединение восстановлено';b.classList.remove('hidden');b.classList.add('online');clearTimeout(b._t);b._t=setTimeout(()=>b.classList.add('hidden'),1500);return}
+  b.classList.remove('online','hidden');b.textContent=state==='connecting'?'Подключаемся к серверу…':'Нет соединения. Пытаемся подключиться…';
+}
+window.addEventListener('offline',()=>setConnectionState('offline'));
+window.addEventListener('online',()=>{setConnectionState('connecting');socket?.connect?.()});
+if(!navigator.onLine)setConnectionState('offline');
+
+// Prevent accidental duplicate auth/contact submissions.
+function wrapSubmit(form,handler){
+  if(!form||!handler)return;
+  form.onsubmit=async e=>{e.preventDefault();const btn=form.querySelector('button[type="submit"],button.primary,button.small-primary');if(btn?.disabled)return;setBusy(btn,true);try{await handler(e);v14Toast('Готово','success')}catch(err){v14Toast(err.message,'error')}finally{setBusy(btn,false)}};
+}
+wrapSubmit($('#loginForm'),async()=>{const d=await api('/api/login',{method:'POST',body:JSON.stringify({login:$('#login').value,password:$('#loginPassword').value})});setSession(d.token,d.user);await startApp()});
+wrapSubmit($('#registerForm'),async()=>{const d=await api('/api/register',{method:'POST',body:JSON.stringify({phone:$('#phone').value,username:$('#username').value,password:$('#password').value,acceptedTerms:$('#termsAccept').checked})});setSession(d.token,d.user);await startApp()});
+wrapSubmit($('#contactForm'),async()=>{const d=await api('/api/contacts',{method:'POST',body:JSON.stringify({query:$('#contactQuery').value.trim()})});$('#contactQuery').value='';closeModal('contactModal');await loadContacts();await openPeer(d.contact)});
+
+// Empty states and clearer hidden phone labels.
+const v14RenderContactsBase=renderContacts;
+renderContacts=function(){
+  v14RenderContactsBase();const box=$('#contactsList');if(!box)return;
+  if(!box.children.length){const d=document.createElement('div');d.className='empty-list-state';d.textContent=contactSearch?.trim()?'Ничего не найдено':'Здесь появятся ваши личные чаты';box.appendChild(d)}
+  box.querySelectorAll('.contact-copy span').forEach(el=>{if(!el.textContent.trim())el.textContent='номер скрыт'});
+};
+const v14LoadMessagesBase=loadMessages;
+loadMessages=async function(){await v14LoadMessagesBase();const box=$('#messages');if(box&&!box.children.length){const d=document.createElement('div');d.className='empty-list-state';d.textContent=supportMode?'Начните диалог — бот или администратор ответит здесь':currentPeer?'Напишите первое сообщение':'Пока сообщений нет';box.appendChild(d)}};
+
+// Composer polish: autosize, clear mode indication, send-ready state.
+const input=$('#messageInput');
+if(input){
+  input.maxLength=4000;
+  const resizeComposer=()=>{input.style.height='auto';input.style.height=Math.min(input.scrollHeight,140)+'px';$('#send')?.classList.toggle('ready',!!input.value.trim()||!!pendingMedia)};
+  input.addEventListener('input',resizeComposer);input.addEventListener('paste',()=>setTimeout(resizeComposer));
+  resizeComposer();
+}
+const v14ClearPending=clearPendingMedia;
+clearPendingMedia=function(){v14ClearPending();$('#send')?.classList.toggle('ready',!!$('#messageInput')?.value.trim())};
+
+// Make media saving work more reliably on browsers that block blob downloads.
+const v14SaveMedia=saveMedia;
+saveMedia=async function(m){
+  try{await v14SaveMedia(m);v14Toast('Файл сохранён','success')}
+  catch{window.open(m.mediaUrl,'_blank','noopener')}
+};
+
+// Socket feedback for soft launch.
+const v14ConnectBase=connect;
+connect=function(){
+  setConnectionState('connecting');v14ConnectBase();
+  socket.on('connect',()=>setConnectionState('online'));
+  socket.on('disconnect',reason=>{if(reason!=='io client disconnect')setConnectionState('offline')});
+  socket.on('reconnect_attempt',()=>setConnectionState('connecting'));
+  socket.on('send-error',x=>v14Toast(x?.error||'Не удалось отправить сообщение','error'));
+};
+
+// Admins can keep the admin panel available during a maintenance window; users see only the maintenance screen.
+const v14ShowMaintenanceBase=showMaintenanceState;
+showMaintenanceState=function(active,until=null){
+  if(me?.isAdmin){clearTimeout(maintenanceTimer);$('#maintenanceOverlay')?.classList.add('hidden');return}
+  v14ShowMaintenanceBase(active,until);
+};
+
+// Close floating UI on Escape; improve modal keyboard behavior.
+document.addEventListener('keydown',e=>{
+  if(e.key!=='Escape')return;
+  closeFloating();hideSupportCommands?.();
+  const open=[...$$('.modal:not(.hidden)')].pop();if(open)closeModal(open.id);
+});
+
+// Polish labels after initial render.
+document.addEventListener('DOMContentLoaded',()=>{if(!token)finishStartup()});
+const startupWatch=new MutationObserver(()=>{if(!$('#app')?.classList.contains('hidden')||!$('#auth')?.classList.contains('hidden'))finishStartup()});
+startupWatch.observe(document.body,{subtree:true,attributes:true,attributeFilter:['class']});
+setTimeout(finishStartup,2600);
