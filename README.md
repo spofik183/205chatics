@@ -1,8 +1,8 @@
-# 205chating v5
+# 205chating v6
 
 Realtime messenger on Node.js + Express + Socket.IO.
 
-## v5
+## v6
 - registration agreement checkbox
 - channel profile for 205chat with admin avatar/description/chat-clear controls
 - user profiles from chat header and avatars

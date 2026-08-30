@@ -109,9 +109,12 @@ function syncMeUI(){
 function updateChatHeader(participantCount){
   if(currentPeer && currentPeerUser){
     $('#chatTitle').innerHTML='@'+escapeHtml(currentPeerUser.username)+badge(currentPeerUser);
-    $('#chatSubtitle').textContent=currentPeerUser.online?(lang==='ru'?'онлайн':'online'):(lang==='ru'?'личные сообщения':'direct messages');
+    setAvatar($('#chatHeaderAvatar'),currentPeerUser);
+    $('#chatSubtitle').textContent=currentPeerUser.online?(lang==='ru'?'в сети':'online'):(lang==='ru'?'был(а) недавно':'last seen recently');
+    $('#chatSubtitle').classList.toggle('online-status',!!currentPeerUser.online);
   }else{
     $('#chatTitle').innerHTML='205chat <span class="check orange-check">✓</span>';
+    $('#chatSubtitle').classList.remove('online-status');
     setAvatar($('#chatHeaderAvatar'),{username:'205',avatarUrl:channel.avatarUrl||''});
     setAvatar($('#channelAvatarSide'),{username:'205',avatarUrl:channel.avatarUrl||''});
     const n=participantCount ?? Number($('#chatSubtitle').dataset.count||0);
@@ -127,7 +130,7 @@ function contactRow(u){
   const b=document.createElement('button'); b.className='contact-item'+(currentPeer===u.id?' active':''); b.dataset.peer=u.id;
   const av=document.createElement('div'); av.className='avatar'; setAvatar(av,u);
   const copy=document.createElement('div'); copy.className='contact-copy';
-  copy.innerHTML=`<b>@${escapeHtml(u.username)}${badge(u)}</b><span>${u.online?(lang==='ru'?'онлайн':'online'):escapeHtml(u.phone||'')}</span>`;
+  copy.innerHTML=`<b>@${escapeHtml(u.username)}${badge(u)}</b><span>${escapeHtml(u.phone||'')}</span>`;
   av.onclick=e=>{e.stopPropagation();openUserProfile(u)}; b.append(av,copy); b.onclick=()=>openPeer(u); return b;
 }
 function renderContacts(){ const box=$('#contactsList'); box.innerHTML=''; contacts.forEach(u=>box.appendChild(contactRow(u))); }
@@ -161,7 +164,7 @@ function renderMessage(m,{append=true}={}){
   const av=document.createElement('button'); av.className='avatar msg-avatar avatar-button'; setAvatar(av,m.sender); if(m.sender?.id)av.onclick=()=>openUserProfile(m.sender);
   const bubble=document.createElement('div'); bubble.className='bubble';
   const body=mediaMarkup(m)+(m.text?`<div class="text${m.type!=='text'?' caption':''}">${escapeHtml(m.text)}</div>`:'');
-  bubble.innerHTML=`<button class="name name-button">${escapeHtml(m.sender?.username||'Пользователь')}${badge(m.sender)}</button>${replyMarkup(m)}${body}${m.anonymousRealSender?`<div class="anon-real">@${escapeHtml(m.anonymousRealSender.username)} · ${escapeHtml(m.anonymousRealSender.phone)}</div>`:''}${reactionsMarkup(m)}<div class="message-meta"><span>${formatTime(m.createdAt)}</span><span class="message-views"><span class="eye-icon">◉</span><span class="view-count">${m.views||0}</span></span><button class="more-btn" aria-label="More">⋯</button></div>`;
+  bubble.innerHTML=`<button class="name name-button">${escapeHtml(m.sender?.username||'Пользователь')}${badge(m.sender)}</button>${replyMarkup(m)}${body}${m.anonymousRealSender?`<div class="anon-real">@${escapeHtml(m.anonymousRealSender.username)} · ${escapeHtml(m.anonymousRealSender.phone)}</div>`:''}${reactionsMarkup(m)}<div class="message-meta"><span>${formatTime(m.createdAt)}</span>${currentPeer?'':`<span class="message-views"><span class="eye-icon">◉</span><span class="view-count">${m.views||0}</span></span>`}<button class="more-btn" aria-label="More">⋯</button></div>`;
   bubble.querySelector('.more-btn').onclick=e=>openMessageMenu(e.currentTarget,m);
   const nameBtn=bubble.querySelector('.name-button'); if(nameBtn&&m.sender?.id)nameBtn.onclick=()=>openUserProfile(m.sender);
   bubble.querySelectorAll('.reaction-chip').forEach(btn=>btn.onclick=()=>socket?.emit('react-message',{id:m.id,emoji:btn.dataset.emoji}));
@@ -246,6 +249,7 @@ $('#attachBtn').onclick=()=>$('#mediaInput').click();
 $('#mediaInput').onchange=async()=>{ const file=$('#mediaInput').files[0]; if(!file)return; try{toast(lang==='ru'?'Загрузка…':'Uploading…'); const data=await uploadFile(file); showPendingMedia(data,file);}catch(err){toast(err.message);clearPendingMedia()} };
 
 function send(){
+  if(mediaRecorder?.state==='recording'){ stopRecording(true); return; }
   const text=$('#messageInput').value.trim();
   if(!socket?.connected)return toast(lang==='ru'?'Нет соединения':'No connection');
   if(!text&&!pendingMedia)return;
@@ -281,11 +285,11 @@ async function startRecording(){
     mediaRecorder.onerror=()=>toast(lang==='ru'?'Ошибка записи':'Recording error');
     mediaRecorder.onstop=finishRecording;
     mediaRecorder.start(250); recordStarted=Date.now(); recordTimer=setInterval(updateRecordClock,250); updateRecordClock();
-    $('#recordBtn').textContent='■'; $('#recordBtn').classList.add('recording');
+    $('#recordBtn').textContent='●'; $('#recordBtn').classList.add('recording'); $('#recordBtn').disabled=true;
     if(recordMode==='voice'){
       $('#recordLabel').textContent=lang==='ru'?'Запись голосового…':'Recording voice…'; $('#recordingBar').classList.remove('hidden');
     }else{
-      $('#cameraPreview').srcObject=recordStream; $('#videoRecorder').classList.remove('hidden');
+      $('#cameraPreview').srcObject=recordStream; $('#videoRecorder').classList.remove('hidden'); document.body.classList.add('video-recording');
     }
   }catch(err){ console.error(err); toast(lang==='ru'?'Разреши доступ к микрофону/камере':'Allow microphone/camera access'); stopTracks(); }
 }
@@ -297,7 +301,7 @@ function stopRecording(sendIt){
 }
 async function finishRecording(){
   clearInterval(recordTimer); recordTimer=null;
-  $('#recordingBar').classList.add('hidden'); $('#videoRecorder').classList.add('hidden'); $('#recordBtn').textContent='●'; $('#recordBtn').classList.remove('recording');
+  $('#recordingBar').classList.add('hidden'); $('#videoRecorder').classList.add('hidden'); document.body.classList.remove('video-recording'); $('#recordBtn').textContent='●'; $('#recordBtn').classList.remove('recording'); $('#recordBtn').disabled=false;
   const wasMode=recordMode; const chunks=[...recordChunks]; const mime=mediaRecorder?.mimeType||(wasMode==='video'?'video/webm':'audio/webm');
   stopTracks(); mediaRecorder=null; recordChunks=[];
   if(recordCanceled||!chunks.length){recordCanceled=false;return;}
@@ -309,7 +313,7 @@ async function finishRecording(){
     clearReply();
   }catch(err){toast(err.message)}
 }
-$('#recordBtn').onclick=()=>mediaRecorder?.state==='recording'?stopRecording(true):startRecording();
+$('#recordBtn').onclick=()=>{ if(mediaRecorder?.state==='recording')return; startRecording(); };
 $('#cancelRecord').onclick=()=>stopRecording(false); $('#cancelVideo').onclick=()=>stopRecording(false);
 
 function openModal(id){$('#'+id)?.classList.remove('hidden')}
