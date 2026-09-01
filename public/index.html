@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#101827">
   <meta name="description" content="205chating — быстрый мессенджер с личными чатами, подарками и 205chat.">
   <title>205chating</title>
-  <link rel="stylesheet" href="style.css?v=0152">
+  <link rel="stylesheet" href="style.css?v=0153">
 </head>
 <body>
 <div id="toast" class="toast"></div>
@@ -50,6 +50,7 @@
       <button id="sideAddContact" class="side-menu-item">＋ <span>Добавить контакт</span></button>
       <button id="sideSettings" class="side-menu-item">⚙ <span>Настройки</span></button>
       <button id="sideSupport" class="side-menu-item">? <span>Поддержка</span></button>
+      <button id="sidePremium" class="side-menu-item">👑 <span>Chatics Premium</span></button>
       <button id="sideAdmin" class="side-menu-item hidden">◇ <span>Панель администратора</span></button>
     </div>
 
@@ -60,6 +61,12 @@
       <div class="chat-item-copy"><b>205chat <span class="check orange-check">✓</span></b><span id="lastPreview" data-i18n="chat.global">Общий чат</span></div>
       <span class="unread-dot"></span>
     </button>
+
+    <div class="channels-head">
+      <span>Каналы</span>
+      <button id="createChannelBtn" class="icon-btn mini" title="Создать канал">＋</button>
+    </div>
+    <div id="channelsList" class="channels-list"></div>
 
     <div class="contacts-head">
       <span data-i18n="contacts.title">Личные сообщения</span>
@@ -94,7 +101,7 @@
       <div id="supportCommandBar" class="support-command-bar hidden"></div>
       <div class="composer">
         <button id="giftBtn" class="icon-btn composer-btn gift-composer-btn hidden" title="Подарок" aria-label="Подарок"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10h16v10H4zM3 7h18v4H3zM12 7v13M7.7 7C5.3 7 4 5.9 4 4.5 4 3.1 5.1 2 6.5 2 8.8 2 12 7 12 7M16.3 7C18.7 7 20 5.9 20 4.5 20 3.1 18.9 2 17.5 2 15.2 2 12 7 12 7"/></svg></button><button id="attachBtn" class="icon-btn composer-btn" title="Attach">＋</button>
-        <input id="mediaInput" type="file" accept="image/*,video/*" hidden>
+        <div id="attachMenu" class="attach-menu hidden"><button data-attach="media">Медиа</button><button data-attach="file">Файлы</button><button data-attach="poll">Опрос 👑</button></div><input id="mediaInput" type="file" accept="image/*,video/*" hidden><input id="fileInput" type="file" accept=".pdf,.txt,.zip,.doc,.docx" hidden>
         <textarea id="messageInput" rows="1" data-i18n-placeholder="chat.message" placeholder="Сообщение"></textarea>
         <div class="record-mode" aria-label="Recording type">
           <button id="modeVoice" class="record-mode-btn active" data-mode="voice" title="Голосовое">🎙</button>
@@ -175,20 +182,30 @@
 
 <div id="adminModal" class="modal hidden"><div class="modal-card admin-card">
   <div class="modal-head"><div><h2>Панель администратора</h2><p>Управление 205chating</p></div><button class="icon-btn modal-close" data-close="adminModal">×</button></div>
-  <div class="admin-tabs"><button class="active" data-admin-tab="users">Пользователи</button><button data-admin-tab="gifts">Подарки и NFT</button></div>
+  <div class="admin-tabs"><button class="active" data-admin-tab="users">Пользователи</button><button data-admin-tab="gifts">Подарки и NFT</button><button data-admin-tab="referrals">Реферальные ссылки</button><button data-admin-tab="purchases">Покупки 🍓</button><button data-admin-tab="premium">Premium 👑</button></div>
   <div id="adminUsersTab" class="admin-tab-panel">
     <div class="notice">Пароли не отображаются: сервер хранит только защищённые bcrypt-хеши.</div>
     <div class="admin-actions"><button id="adminChannelBtn" class="secondary">205chat: настройки канала</button><button id="adminSupportBtn" class="secondary">Поддержка</button><button id="adminAuditBtn" class="secondary">Контакты</button><button id="refreshAdminBtn" class="secondary">Обновить список</button></div>
     <div class="maintenance-admin"><div><b>Технический перерыв</b><span>На время перерыва весь интерфейс будет закрыт экраном обслуживания.</span></div><div class="maintenance-admin-controls"><input id="maintenanceMinutes" type="number" min="1" step="1" placeholder="Минуты"><button id="startMaintenance" class="danger-button">Уйти на технический перерыв</button></div></div>
-    <div class="referral-admin"><div><b>Реферальная ссылка</b><span>Создай ссылку и укажи награду тому, кто зайдёт по ней.</span></div><div class="referral-admin-controls"><input id="referralBerries" type="number" min="1" step="1" placeholder="Награда 🍓"><button id="createReferral" class="small-primary" type="button">Создать рефералку</button></div><div id="referralList" class="referral-list"></div></div>
     <div class="admin-user-search"><span>⌕</span><input id="adminUserSearch" placeholder="Поиск по @username или номеру"></div>
     <div class="table-wrap"><table><thead><tr><th>Пользователь</th><th>Телефон</th><th>Статус</th><th>Галочка</th><th>Роль</th><th>🍓 Баланс / выдать</th><th>Аккаунт</th></tr></thead><tbody id="usersTable"></tbody></table></div>
-    <div class="admin-purchases"><div class="section-title"><b>Покупки клубничек</b><button id="refreshPurchases" class="text-btn">Обновить</button></div><div id="purchaseList" class="purchase-list"></div></div>
   </div>
   <div id="adminGiftsTab" class="admin-tab-panel hidden">
     <div class="section-title"><div><b>Создание подарков и NFT</b><span>Изначально рынок пуст — все позиции создаёт администратор</span></div><button id="refreshMarketAdmin" class="text-btn">Обновить</button></div>
     <form id="adminGiftForm" class="admin-gift-form v10-gift-form"><label class="admin-gift-upload"><span>Изображение</span><input id="adminGiftImage" type="file" accept="image/*" required></label><input id="adminGiftName" placeholder="Название" maxlength="60" required><select id="adminGiftType"><option value="gift">Подарок</option><option value="nft">NFT</option></select><input id="adminGiftPrice" type="number" min="1" placeholder="Цена 🍓" required><input id="adminGiftQuantity" type="number" min="1" placeholder="Кол-во на рынке" required><label class="release-field"><span>Дата выхода</span><input id="adminGiftReleaseAt" type="datetime-local"></label><button class="small-primary" type="submit">Создать</button></form>
     <div id="adminMarketList" class="admin-market-list"></div>
+  </div>
+  <div id="adminReferralsTab" class="admin-tab-panel hidden">
+    <div class="section-title"><div><b>Реферальные ссылки</b><span>Создание, копирование и удаление ссылок.</span></div></div>
+    <div class="referral-admin"><div><b>Создать рефералку</b><span>Награда начисляется пользователю после входа или регистрации по ссылке.</span></div><div class="referral-admin-controls"><input id="referralBerries" type="number" min="1" step="1" placeholder="Награда 🍓"><button id="createReferral" class="small-primary" type="button">Создать ссылку</button></div><div id="referralList" class="referral-list"></div></div>
+  </div>
+  <div id="adminPurchasesTab" class="admin-tab-panel hidden">
+    <div class="section-title"><div><b>Покупки клубничек</b><span>Заявки на ручную проверку переводов.</span></div><button id="refreshPurchases" class="text-btn">Обновить</button></div>
+    <div id="purchaseList" class="purchase-list"></div>
+  </div>
+  <div id="adminPremiumTab" class="admin-tab-panel hidden">
+    <div class="section-title"><div><b>Chatics Premium 👑</b><span>Проверка заявок и выдача Premium.</span></div><button id="refreshPremiumRequests" class="text-btn">Обновить</button></div>
+    <div id="premiumRequestList" class="purchase-list"></div>
   </div>
 </div></div>
 
@@ -197,8 +214,46 @@
   <div class="settings-page-body admin-audit-body"><div class="audit-search"><span>⌕</span><input id="auditUserSearch" placeholder="Найти пользователя по @username или номеру"></div><div class="audit-columns"><div id="auditUsers" class="audit-list"></div><div id="auditConversations" class="audit-list"></div><div id="auditMessages" class="audit-messages"><div class="empty-state">Выберите пользователя, затем переписку.</div></div></div></div>
 </section>
 
+
+<div id="premiumModal" class="modal hidden"><div class="modal-card premium-card">
+  <div class="modal-head"><div><h2>Chatics Premium 👑</h2><p>Сначала ознакомься со всеми возможностями Premium.</p></div><button class="icon-btn modal-close" data-close="premiumModal">×</button></div>
+  <div class="premium-hero"><div class="premium-crown">👑</div><div><b>Больше возможностей в 205chating</b><span id="premiumStatusText">Premium не активен</span></div></div>
+  <div class="premium-features">
+    <div><span class="premium-demo-berry">🍓</span><b>Особая отметка</b><small>Синяя контурная клубничка рядом с @username.</small></div>
+    <div><span>📌</span><b>Закрепление сообщений</b><small>Закрепляй важные сообщения в своих чатах.</small></div>
+    <div><span>📣</span><b>Собственные каналы</b><small>Публичные или частные каналы. Писать может только создатель.</small></div>
+    <div><span>📊</span><b>Опросы</b><small>Создавай опросы через кнопку + в строке сообщений.</small></div>
+  </div>
+  <div class="premium-plans"><button data-premium-plan="1"><b>1 месяц</b><span>139₽</span></button><button data-premium-plan="3"><b>3 месяца</b><span>319₽</span></button><button data-premium-plan="6"><b>6 месяцев</b><span>509₽</span></button></div>
+  <small class="premium-note">После выбора тарифа бот пришлёт реквизиты. Premium активирует администратор после проверки оплаты.</small>
+</div></div>
+
+<div id="premiumPromo" class="modal hidden"><div class="modal-card premium-promo-card">
+  <div class="premium-promo-icon">👑</div><h2>Попробуй Chatics Premium</h2><p>Каналы, опросы, закрепление сообщений и специальная отметка возле username.</p>
+  <div class="premium-promo-actions"><button id="promoOpenPremium" class="primary wide">Посмотреть Premium</button><button id="promoLater" class="secondary wide">Позже</button></div>
+</div></div>
+
+<div id="pollModal" class="modal hidden"><div class="modal-card small-card">
+  <div class="modal-head"><div><h2>Новый опрос 👑</h2><p>Опрос доступен с Chatics Premium.</p></div><button class="icon-btn modal-close" data-close="pollModal">×</button></div>
+  <form id="pollForm" class="stack-form">
+    <label><span>Вопрос</span><input id="pollQuestion" maxlength="180" required placeholder="Например: Куда пойдём?"></label>
+    <label><span>Варианты ответа</span><textarea id="pollOptions" rows="5" placeholder="Каждый вариант с новой строки" required></textarea></label>
+    <button class="primary wide" type="submit">Создать опрос</button>
+  </form>
+</div></div>
+
+<div id="channelCreateModal" class="modal hidden"><div class="modal-card small-card">
+  <div class="modal-head"><div><h2>Создать канал 👑</h2><p>Писать в канале сможет только его создатель.</p></div><button class="icon-btn modal-close" data-close="channelCreateModal">×</button></div>
+  <form id="channelCreateForm" class="stack-form">
+    <label><span>Название</span><input id="channelName" maxlength="60" required placeholder="Название канала"></label>
+    <label class="channel-privacy-row"><span>Тип канала</span><select id="channelPrivacy"><option value="public">Публичный</option><option value="private">Частный</option></select></label>
+    <label><span>Пригласить друзей</span><input id="channelInvites" placeholder="@user1, @user2"></label>
+    <button class="primary wide" type="submit">Создать канал</button>
+  </form>
+</div></div>
+
 <div id="maintenanceOverlay" class="maintenance-overlay hidden"><div class="maintenance-copy"><h1>технический перерыв🔌</h1><p>скоро все заработает</p></div></div>
 <script src="/socket.io/socket.io.js"></script>
-<script src="app.js?v=0152"></script>
+<script src="app.js?v=0153"></script>
 </body>
 </html>

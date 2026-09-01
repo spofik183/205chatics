@@ -33,6 +33,9 @@ let selectedGiftKey = null;
 let marketKind = 'gift';
 let myGifts = [];
 let myPurchases = [];
+let currentChannel = null;
+let premiumChannels = [];
+let voicePaused = false;
 
 const I18N = {
   ru: {
@@ -60,9 +63,9 @@ let theme = localStorage.getItem('205theme') || 'dark';
 function t(k){ return I18N[lang]?.[k] || I18N.ru[k] || k; }
 function escapeHtml(s=''){ return String(s).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c])); }
 function initials(u){ return String(u?.username || '205').slice(0,2).toUpperCase(); }
-function badge(u){ return (u?.verified || u?.isAdmin) ? '<span class="check">✓</span>' : ''; }
+function badge(u){ return (u?.verified || u?.isAdmin ? '<span class="check">✓</span>' : '') + (u?.premium?'<span class="premium-berry-badge" title="Chatics Premium">🍓</span>':''); }
 function toast(text){ const e=$('#toast'); e.textContent=text; e.classList.add('show'); clearTimeout(e._timer); e._timer=setTimeout(()=>e.classList.remove('show'),2400); }
-function setAvatar(el,user){ if(!el)return; el.textContent=user?.avatarUrl?'':initials(user); el.style.backgroundImage=user?.avatarUrl?`url("${user.avatarUrl}")`:''; }
+function setAvatar(el,user){ if(!el)return; el.textContent=user?.avatarUrl?'':initials(user); el.style.backgroundImage=user?.avatarUrl?`url("${user.avatarUrl}")`:''; el.classList.toggle('online-avatar',!!user?.online); }
 function formatTime(iso){ try{return new Date(iso).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}catch{return ''} }
 function compactText(m){ if(m.text)return m.text.slice(0,80); if(m.type==='image')return lang==='ru'?'Фото':'Photo'; if(m.type==='video')return lang==='ru'?'Видео':'Video'; if(m.type==='audio')return lang==='ru'?'Голосовое сообщение':'Voice message'; return ''; }
 
@@ -161,6 +164,8 @@ function mediaMarkup(m){
     return triangle?`<span class="triangle-video-wrap"><video class="media-video triangle-message-video" src="${escapeHtml(m.mediaUrl)}" controls playsinline preload="metadata"></video></span>`:`<video class="media-video" src="${escapeHtml(m.mediaUrl)}" controls playsinline preload="metadata"></video>`;
   }
   if(m.type==='audio')return `<audio class="media-audio" src="${escapeHtml(m.mediaUrl)}" controls preload="metadata"></audio>`;
+  if(m.type==='file')return `<a class="file-message" href="${escapeHtml(m.mediaUrl)}" download="${escapeHtml(m.fileName||'file')}"><span>📎</span><div><b>${escapeHtml(m.fileName||'Файл')}</b><small>Нажмите, чтобы скачать</small></div></a>`;
+  if(m.type==='poll'&&m.poll){const total=(m.poll.options||[]).reduce((n,o)=>n+(o.count||0),0);return `<div class="poll-card"><b>${escapeHtml(m.poll.question)}</b><div class="poll-options">${(m.poll.options||[]).map(o=>`<button class="poll-option ${o.mine?'mine':''}" data-poll-option="${escapeHtml(o.id)}"><span>${escapeHtml(o.text)}</span><em>${o.count||0}</em></button>`).join('')}</div><small>${total} голосов</small></div>`;}
   return '';
 }
 function reactionsMarkup(m){
@@ -200,7 +205,7 @@ function updatePinned(messages){
 
 async function loadMessages(){
   try{
-    const d=await api('/api/messages'+(currentPeer?`?peer=${encodeURIComponent(currentPeer)}`:''));
+    const d=await api('/api/messages'+(currentChannel?`?channel=${encodeURIComponent(currentChannel.id)}`:(currentPeer?`?peer=${encodeURIComponent(currentPeer)}`:'')));
     $('#messages').innerHTML='';
     (d.messages||[]).forEach(m=>renderMessage(m));
     updatePinned(d.messages||[]);
@@ -235,7 +240,7 @@ function openMessageMenu(anchor,m){
   ];
   if(['image','video'].includes(m.type)&&m.mediaUrl){ items.splice(2,0,{label:lang==='ru'?'Сохранить':'Save',run:()=>saveMedia(m)}); }
   if(m.mine||me?.isAdmin) items.push({label:lang==='ru'?'Удалить у всех':'Delete for everyone',danger:true,run:()=>socket?.emit('delete-message-all',m.id)});
-  if(me?.isAdmin){ items.push({label:m.pinned?(lang==='ru'?'Открепить':'Unpin'):(lang==='ru'?'Закрепить':'Pin'),run:()=>socket?.emit('pin-message',m.id)}); }
+  if(me?.isAdmin||me?.premium){ items.push({label:m.pinned?(lang==='ru'?'Открепить':'Unpin'):(lang==='ru'?'Закрепить':'Pin'),run:()=>socket?.emit('pin-message',m.id)}); }
   menu.innerHTML='';
   items.forEach(x=>{ const b=document.createElement('button'); b.textContent=x.label; if(x.danger)b.classList.add('danger'); b.onclick=()=>{closeFloating();x.run()}; menu.appendChild(b); });
   placeFloating(menu,anchor);
@@ -269,7 +274,7 @@ function send(){
   const text=$('#messageInput').value.trim();
   if(!socket?.connected)return toast(lang==='ru'?'Нет соединения':'No connection');
   if(!text&&!pendingMedia)return;
-  const payload={text,recipientId:currentPeer||null,replyTo:replyTo?.id||null};
+  if(currentChannel&&!currentChannel.mine)return toast('В канале может писать только его создатель'); const payload={text,recipientId:currentChannel?null:(currentPeer||null),channelId:currentChannel?.id||null,replyTo:replyTo?.id||null};
   if(pendingMedia)Object.assign(payload,{type:pendingMedia.type,mediaUrl:pendingMedia.url,fileName:pendingMedia.name,mime:pendingMedia.mime}); else payload.type='text';
   socket.emit('send-message',payload);
   $('#messageInput').value=''; clearPendingMedia(); clearReply(); socket.emit('typing',{isTyping:false,peerId:currentPeer||null});
@@ -395,7 +400,12 @@ $('#channelAvatarInput').onchange=async()=>{const file=$('#channelAvatarInput').
 $('#saveChannelDescription').onclick=async()=>{try{const d=await api('/api/channel',{method:'PATCH',body:JSON.stringify({description:$('#channelDescription').value})});channel=d.channel;toast('Описание сохранено')}catch(err){toast(err.message)}};
 $('#clearGlobalChat').onclick=async()=>{if(!confirm('Очистить ВСЕ сообщения в 205chat? Личные сообщения останутся.'))return;try{await api('/api/channel/messages',{method:'DELETE'});$('#messages').innerHTML='';closeModal('channelProfileModal');toast('205chat очищен')}catch(err){toast(err.message)}};
 
-function setAdminTab(tab){$$('[data-admin-tab]').forEach(b=>b.classList.toggle('active',b.dataset.adminTab===tab));$('#adminUsersTab').classList.toggle('hidden',tab!=='users');$('#adminGiftsTab').classList.toggle('hidden',tab!=='gifts');if(tab==='gifts')loadAdminMarket();}
+function setAdminTab(tab){
+  $$('[data-admin-tab]').forEach(b=>b.classList.toggle('active',b.dataset.adminTab===tab));
+  const map={users:'#adminUsersTab',gifts:'#adminGiftsTab',referrals:'#adminReferralsTab',purchases:'#adminPurchasesTab',premium:'#adminPremiumTab'};
+  Object.entries(map).forEach(([k,sel])=>$(sel)?.classList.toggle('hidden',tab!==k));
+  if(tab==='gifts')loadAdminMarket();if(tab==='referrals')loadReferralsAdmin?.();if(tab==='purchases')loadPurchasesAdmin();if(tab==='premium')loadPremiumRequestsAdmin?.();
+}
 $$('[data-admin-tab]').forEach(b=>b.onclick=()=>setAdminTab(b.dataset.adminTab));
 function renderAdminUsers(list=adminUsersCache){
   const tb=$('#usersTable');tb.innerHTML='';list.forEach(u=>{const tr=document.createElement('tr');tr.innerHTML=`<td><b>@${escapeHtml(u.username)}</b> ${badge(u)}${u.isAdmin?'<br><small>Admin</small>':''}</td><td>${escapeHtml(u.phone)}</td><td><span class="status"><span class="dot ${u.online?'on':''}"></span>${u.online?'онлайн':'оффлайн'}</span></td><td><button class="verify-btn ${u.verified?'on':''}" data-id="${u.id}" data-v="${u.verified}" ${u.rootAdmin?'disabled':''}>${u.verified?'✓':'+'}</button></td><td><button class="admin-role-btn ${u.isAdmin?'on':''}" data-admin-id="${u.id}" data-a="${u.isAdmin}" ${u.rootAdmin?'disabled':''}>${u.isAdmin?'Admin':'User'}</button></td><td><div class="berry-admin-cell"><b>${u.strawberries||0}🍓</b><input type="number" step="1" placeholder="любое количество" data-berry-input="${u.id}"><button class="verify-btn" data-berry-give="${u.id}">Выдать</button></div></td><td><button class="danger-button admin-delete-user" data-delete-user="${u.id}" ${u.rootAdmin?'disabled':''}>Удалить аккаунт</button></td>`;tb.appendChild(tr)});
@@ -501,6 +511,11 @@ function updateChatHeader(participantCount){
     $('#chatTitle').innerHTML='Поддержка <span class="check orange-check">✓</span>'; $('#chatSubtitle').textContent='обращения пользователей'; $('#chatSubtitle').classList.remove('online-status'); setAvatar($('#chatHeaderAvatar'),{username:'SP',avatarUrl:''});
   }else if(supportMode==='admin'){
     $('#chatTitle').innerHTML='чат с ботом <span class="check orange-check">✓</span>'; $('#chatSubtitle').textContent=supportUser?`заявка @${supportUser.username}`:'заявка пользователя'; $('#chatSubtitle').classList.remove('online-status'); setAvatar($('#chatHeaderAvatar'),supportUser||{username:'SP'});
+  }else if(currentChannel){
+    $('#chatTitle').innerHTML='#'+escapeHtml(currentChannel.name)+(currentChannel.mine?' <span class="channel-owner-chip">ваш</span>':'');
+    setAvatar($('#chatHeaderAvatar'),{username:(currentChannel.name||'CH').slice(0,2),online:false});
+    $('#chatSubtitle').textContent=(currentChannel.isPublic?'публичный канал':'частный канал')+' · пишет только создатель';
+    $('#chatSubtitle').classList.remove('online-status');
   }else if(currentPeer && currentPeerUser){
     $('#chatTitle').innerHTML='@'+escapeHtml(currentPeerUser.username)+badge(currentPeerUser); setAvatar($('#chatHeaderAvatar'),currentPeerUser);
     $('#chatSubtitle').textContent=currentPeerUser.online?(lang==='ru'?'в сети':'online'):(lang==='ru'?'был(а) недавно':'last seen recently'); $('#chatSubtitle').classList.toggle('online-status',!!currentPeerUser.online);
@@ -539,8 +554,8 @@ async function loadContacts(){
   }catch(err){toast(err.message)}
 }
 $('#sidebarSearch').oninput=e=>{contactSearch=e.target.value||'';renderContacts();};
-async function openPeer(u){ resetModes(); currentPeer=u.id; currentPeerUser=u; replyTo=null; clearReply(); $('#sidebar').classList.remove('mobile-open'); $('#globalChat').classList.remove('active'); renderContacts(); updateChatHeader(); await loadMessages(); }
-$('#globalChat').onclick=async()=>{ resetModes(); currentPeer=null; currentPeerUser=null; replyTo=null; clearReply(); $('#globalChat').classList.add('active'); $('#sidebar').classList.remove('mobile-open'); renderContacts(); await refreshStats(); await loadMessages(); };
+async function openPeer(u){ resetModes(); currentChannel=null; currentPeer=u.id; currentPeerUser=u; replyTo=null; clearReply(); $('#sidebar').classList.remove('mobile-open'); $('#globalChat').classList.remove('active'); renderContacts(); updateChatHeader(); await loadMessages(); }
+$('#globalChat').onclick=async()=>{ resetModes(); currentChannel=null; currentPeer=null; currentPeerUser=null; replyTo=null; clearReply(); $('#globalChat').classList.add('active'); $('#sidebar').classList.remove('mobile-open'); renderContacts(); await refreshStats(); await loadMessages(); };
 
 function giftMessageMarkup(m){
   if(!m.gift)return '';
@@ -552,16 +567,18 @@ function mediaMarkup(m){
   if(m.type==='image')return `<img class="media-image" src="${escapeHtml(m.mediaUrl)}" alt="image">`;
   if(m.type==='video'){const triangle=/^(triangle|square)-/i.test(m.fileName||'');return triangle?`<span class="triangle-video-wrap"><video class="media-video triangle-message-video" src="${escapeHtml(m.mediaUrl)}" controls playsinline preload="metadata"></video></span>`:`<video class="media-video" src="${escapeHtml(m.mediaUrl)}" controls playsinline preload="metadata"></video>`;}
   if(m.type==='audio')return `<audio class="media-audio" src="${escapeHtml(m.mediaUrl)}" controls preload="metadata"></audio>`;
+  if(m.type==='file')return `<a class="file-message" href="${escapeHtml(m.mediaUrl)}" download="${escapeHtml(m.fileName||'file')}"><span>📎</span><div><b>${escapeHtml(m.fileName||'Файл')}</b><small>Нажмите, чтобы скачать</small></div></a>`;
+  if(m.type==='poll'&&m.poll){const total=(m.poll.options||[]).reduce((n,o)=>n+(o.count||0),0);return `<div class="poll-card"><b>${escapeHtml(m.poll.question)}</b><div class="poll-options">${(m.poll.options||[]).map(o=>`<button class="poll-option ${o.mine?'mine':''}" data-poll-option="${escapeHtml(o.id)}"><span>${escapeHtml(o.text)}</span><em>${o.count||0}</em></button>`).join('')}</div><small>${total} голосов</small></div>`;}
   return '';
 }
 function renderMessage(m,{append=true}={}){
   if(supportMode)return null;
-  if(currentPeer){const belongs=m.chatType==='private'&&(m.sender?.id===currentPeer||m.recipientId===currentPeer||(m.mine&&m.recipientId===currentPeer));if(!belongs)return null;} else if(m.chatType==='private')return null;
+  if(currentChannel){if(m.chatType!=='channel'||m.channelId!==currentChannel.id)return null;}else if(currentPeer){const belongs=m.chatType==='private'&&(m.sender?.id===currentPeer||m.recipientId===currentPeer||(m.mine&&m.recipientId===currentPeer));if(!belongs)return null;} else if(m.chatType!=='global')return null;
   const existing=document.querySelector(`.msg[data-id="${CSS.escape(m.id)}"]`); if(existing)existing.remove();
   const row=document.createElement('div'); row.className='msg'+(m.mine?' mine':''); row.dataset.id=m.id; const av=document.createElement('button'); av.className='avatar msg-avatar avatar-button'; setAvatar(av,m.sender); if(m.sender?.id)av.onclick=()=>openUserProfile(m.sender);
   const bubble=document.createElement('div'); bubble.className='bubble'; const body=mediaMarkup(m)+(m.text?`<div class="text${m.type!=='text'?' caption':''}">${escapeHtml(m.text)}</div>`:'');
   bubble.innerHTML=`<button class="name name-button">@${escapeHtml(m.sender?.username||'Пользователь')}${badge(m.sender)}</button>${replyMarkup(m)}${body}${m.anonymousRealSender?`<div class="anon-real">@${escapeHtml(m.anonymousRealSender.username)} · ${escapeHtml(m.anonymousRealSender.phone)}</div>`:''}${reactionsMarkup(m)}<div class="message-meta"><span>${formatTime(m.createdAt)}</span>${currentPeer?'':`<span class="message-views"><span class="eye-icon">◉</span><span class="view-count">${m.views||0}</span></span>`}<button class="more-btn" aria-label="More">⋯</button></div>`;
-  bubble.querySelector('.more-btn').onclick=e=>openMessageMenu(e.currentTarget,m); const nameBtn=bubble.querySelector('.name-button'); if(nameBtn&&m.sender?.id)nameBtn.onclick=()=>openUserProfile(m.sender); bubble.querySelectorAll('.reaction-chip').forEach(btn=>btn.onclick=()=>socket?.emit('react-message',{id:m.id,emoji:btn.dataset.emoji}));
+  bubble.querySelector('.more-btn').onclick=e=>openMessageMenu(e.currentTarget,m); const nameBtn=bubble.querySelector('.name-button'); if(nameBtn&&m.sender?.id)nameBtn.onclick=()=>openUserProfile(m.sender); bubble.querySelectorAll('.reaction-chip').forEach(btn=>btn.onclick=()=>socket?.emit('react-message',{id:m.id,emoji:btn.dataset.emoji}));bubble.querySelectorAll('[data-poll-option]').forEach(btn=>btn.onclick=()=>socket?.emit('vote-poll',{id:m.id,optionId:btn.dataset.pollOption}));
   row.append(av,bubble); if(append)$('#messages').appendChild(row); observeMessage(row,m); if(!currentPeer)$('#lastPreview').textContent=`@${m.sender?.username||''}: ${compactText(m)}`.slice(0,44); return row;
 }
 
@@ -579,13 +596,13 @@ async function loadSupportInbox(){
   (d.threads||[]).forEach(t=>{const b=document.createElement('button');b.className='support-thread-card';const av=document.createElement('div');av.className='avatar';setAvatar(av,t.user);const copy=document.createElement('div');copy.innerHTML=`<b>@${escapeHtml(t.user.username)}</b><span>${escapeHtml(t.lastText||'Новое обращение')}</span><small>${new Date(t.updatedAt).toLocaleString()}</small>`;b.append(av,copy);b.onclick=()=>openSupportAdminThread(t.user);wrap.appendChild(b)});$('#messages').appendChild(wrap);
 }
 async function loadSupportAdminMessages(){const d=await api('/api/admin/support/'+encodeURIComponent(supportUserId)+'/messages');supportUser=d.user;$('#messages').innerHTML='';(d.messages||[]).forEach(renderSupportMessage);updateChatHeader();requestAnimationFrame(()=>{$('#messages').scrollTop=$('#messages').scrollHeight});}
-async function openSupportUser(){resetModes();supportMode='user';currentPeer=null;currentPeerUser=null;$('#globalChat').classList.remove('active');$('#sidebar').classList.remove('mobile-open');renderContacts();updateChatHeader();await loadMessages();}
-async function openSupportInbox(){resetModes();supportMode='inbox';currentPeer=null;currentPeerUser=null;$('#globalChat').classList.remove('active');$('#sidebar').classList.remove('mobile-open');renderContacts();updateChatHeader();await loadMessages();}
-async function openSupportAdminThread(u){supportMode='admin';supportUserId=u.id;supportUser=u;currentPeer=null;currentPeerUser=null;updateChatHeader();await loadMessages();}
+async function openSupportUser(){resetModes();supportMode='user';currentChannel=null;currentPeer=null;currentPeerUser=null;$('#globalChat').classList.remove('active');$('#sidebar').classList.remove('mobile-open');renderContacts();updateChatHeader();await loadMessages();}
+async function openSupportInbox(){resetModes();supportMode='inbox';currentChannel=null;currentPeer=null;currentPeerUser=null;$('#globalChat').classList.remove('active');$('#sidebar').classList.remove('mobile-open');renderContacts();updateChatHeader();await loadMessages();}
+async function openSupportAdminThread(u){supportMode='admin';supportUserId=u.id;supportUser=u;currentChannel=null;currentPeer=null;currentPeerUser=null;updateChatHeader();await loadMessages();}
 async function loadMessages(){
   try{
     if(supportMode==='user')return await loadSupportUserMessages(); if(supportMode==='inbox')return await loadSupportInbox(); if(supportMode==='admin')return await loadSupportAdminMessages();
-    const d=await api('/api/messages'+(currentPeer?`?peer=${encodeURIComponent(currentPeer)}`:'')); $('#messages').innerHTML=''; (d.messages||[]).forEach(m=>renderMessage(m)); updatePinned(d.messages||[]); requestAnimationFrame(()=>{$('#messages').scrollTop=$('#messages').scrollHeight});
+    const d=await api('/api/messages'+(currentChannel?`?channel=${encodeURIComponent(currentChannel.id)}`:(currentPeer?`?peer=${encodeURIComponent(currentPeer)}`:''))); $('#messages').innerHTML=''; (d.messages||[]).forEach(m=>renderMessage(m)); updatePinned(d.messages||[]); requestAnimationFrame(()=>{$('#messages').scrollTop=$('#messages').scrollHeight});
   }catch(err){toast(err.message)}
 }
 async function send(){
@@ -596,7 +613,7 @@ async function send(){
     try{if(supportMode==='user')await api('/api/support/messages',{method:'POST',body:JSON.stringify({text})});else if(supportMode==='admin')await api('/api/admin/support/'+encodeURIComponent(supportUserId)+'/messages',{method:'POST',body:JSON.stringify({text})});else return;$('#messageInput').value='';await loadMessages();}catch(err){toast(err.message)} return;
   }
   if(!socket?.connected)return toast(lang==='ru'?'Нет соединения':'No connection'); if(!text&&!pendingMedia)return;
-  const payload={text,recipientId:currentPeer||null,replyTo:replyTo?.id||null}; if(pendingMedia)Object.assign(payload,{type:pendingMedia.type,mediaUrl:pendingMedia.url,fileName:pendingMedia.name,mime:pendingMedia.mime});else payload.type='text'; socket.emit('send-message',payload); $('#messageInput').value='';clearPendingMedia();clearReply();socket.emit('typing',{isTyping:false,peerId:currentPeer||null});
+  if(currentChannel&&!currentChannel.mine)return toast('В канале может писать только его создатель'); const payload={text,recipientId:currentChannel?null:(currentPeer||null),channelId:currentChannel?.id||null,replyTo:replyTo?.id||null}; if(pendingMedia)Object.assign(payload,{type:pendingMedia.type,mediaUrl:pendingMedia.url,fileName:pendingMedia.name,mime:pendingMedia.mime});else payload.type='text'; socket.emit('send-message',payload); $('#messageInput').value='';clearPendingMedia();clearReply();socket.emit('typing',{isTyping:false,peerId:currentPeer||null});
 }
 $('#send').onclick=send;
 
@@ -665,7 +682,12 @@ $('#refreshMarketAdmin').onclick=loadAdminMarket;
 $('#refreshPurchases').onclick=loadPurchasesAdmin;
 $('#adminSupportBtn').onclick=()=>{closeModal('adminModal');openSupportInbox()};
 
-function messageBelongsCurrent(m){if(supportMode)return false;if(!currentPeer)return m.chatType!=='private';return m.chatType==='private'&&(m.sender?.id===currentPeer||m.recipientId===currentPeer||(m.mine&&m.recipientId===currentPeer));}
+function messageBelongsCurrent(m){
+  if(supportMode)return false;
+  if(currentChannel)return m.chatType==='channel'&&m.channelId===currentChannel.id;
+  if(!currentPeer)return m.chatType==='global';
+  return m.chatType==='private'&&(m.sender?.id===currentPeer||m.recipientId===currentPeer||(m.mine&&m.recipientId===currentPeer));
+}
 function connect(){
   socket?.disconnect();socket=io({auth:{token}});socket.on('connect_error',()=>toast(lang==='ru'?'Ошибка подключения':'Connection error'));
   socket.on('message',async m=>{if(messageBelongsCurrent(m)){renderMessage(m);requestAnimationFrame(()=>{$('#messages').scrollTop=$('#messages').scrollHeight})}if(m.chatType==='private')await loadContacts()});
@@ -1062,7 +1084,7 @@ const refStartAppBase=startApp;
 startApp=async function(){await refStartAppBase();if(me)await claimPendingReferral()};
 
 async function loadReferralsAdmin(){
-  if(!me?.isAdmin)return;try{const d=await api('/api/admin/referrals');const box=$('#referralList');if(!box)return;box.innerHTML='';(d.referrals||[]).slice(0,12).forEach(r=>{const row=document.createElement('div');row.className='referral-row';const link=`${location.origin}${location.pathname}?ref=${encodeURIComponent(r.code)}`;row.innerHTML=`<div><b>${r.berries}🍓</b><span>${escapeHtml(link)}</span><small>${r.claims||0} использований</small></div><button type="button" class="verify-btn">Копировать</button>`;row.querySelector('button').onclick=async()=>{try{await navigator.clipboard.writeText(link);toast('Реферальная ссылка скопирована')}catch{prompt('Скопируй ссылку:',link)}};box.appendChild(row)});if(!box.children.length)box.innerHTML='<small class="gift-empty">Реферальных ссылок пока нет</small>'}catch(e){toast(e.message)}
+  if(!me?.isAdmin)return;try{const d=await api('/api/admin/referrals');const box=$('#referralList');if(!box)return;box.innerHTML='';(d.referrals||[]).forEach(r=>{const row=document.createElement('div');row.className='referral-row';const link=`${location.origin}${location.pathname}?ref=${encodeURIComponent(r.code)}`;row.innerHTML=`<div><b>${r.berries}🍓</b><span>${escapeHtml(link)}</span><small>${r.claims||0} использований</small></div><div class="referral-row-actions"><button type="button" class="verify-btn copy-ref">Копировать</button><button type="button" class="verify-btn danger-market delete-ref">Удалить</button></div>`;row.querySelector('.copy-ref').onclick=async()=>{try{await navigator.clipboard.writeText(link);toast('Реферальная ссылка скопирована')}catch{prompt('Скопируй ссылку:',link)}};row.querySelector('.delete-ref').onclick=async()=>{if(!confirm('Удалить эту реферальную ссылку?'))return;try{await api('/api/admin/referrals/'+encodeURIComponent(r.id),{method:'DELETE'});toast('Реферальная ссылка удалена');await loadReferralsAdmin()}catch(e){toast(e.message)}};box.appendChild(row)});if(!box.children.length)box.innerHTML='<small class="gift-empty">Реферальных ссылок пока нет</small>'}catch(e){toast(e.message)}
 }
 $('#createReferral').onclick=async()=>{const berries=Math.trunc(Number($('#referralBerries').value));if(!Number.isFinite(berries)||berries<1)return toast('Укажи награду в клубничках');try{const d=await api('/api/admin/referrals',{method:'POST',body:JSON.stringify({berries})});$('#referralBerries').value='';await loadReferralsAdmin();const link=`${location.origin}${location.pathname}?ref=${encodeURIComponent(d.referral.code)}`;try{await navigator.clipboard.writeText(link);toast('Рефералка создана и скопирована')}catch{prompt('Рефералка создана:',link)}}catch(e){toast(e.message)}};
 const refOpenAdminBase=openAdmin;
@@ -1081,3 +1103,251 @@ loadAdminMarket=async function(){
 setTimeout(()=>{if(token&&localStorage.getItem('205ref'))claimPendingReferral()},700);
 
 $('#adminBtn').onclick=openAdmin;$('#refreshMarketAdmin').onclick=loadAdminMarket;
+
+
+// ========================= 0.1.5v premium/mobile update =========================
+function premiumActive(){ return !!me?.premium; }
+
+async function loadPremiumChannels(){
+  if(!token)return;
+  try{
+    const d=await api('/api/channels');
+    premiumChannels=d.channels||[];
+    renderPremiumChannels();
+    if(currentChannel){
+      const fresh=premiumChannels.find(c=>c.id===currentChannel.id);
+      if(fresh)currentChannel=fresh;
+    }
+  }catch(e){console.warn('[channels]',e.message)}
+}
+function renderPremiumChannels(){
+  const box=$('#channelsList'); if(!box)return; box.innerHTML='';
+  premiumChannels.forEach(c=>{
+    const b=document.createElement('button');
+    b.className='channel-row'+(currentChannel?.id===c.id?' active':'');
+    b.innerHTML=`<div class="avatar channel-avatar">#</div><div><b>${escapeHtml(c.name)}</b><span>${c.isPublic?'публичный':'частный'}${c.mine?' · ваш':''}</span></div>`;
+    b.onclick=()=>openPremiumChannel(c);
+    box.appendChild(b);
+  });
+  if(!premiumChannels.length)box.innerHTML='<div class="channels-empty">Пока нет каналов</div>';
+}
+async function openPremiumChannel(c){
+  resetModes(); supportMode=null; currentPeer=null; currentPeerUser=null; currentChannel=c; replyTo=null; clearReply();
+  $('#globalChat').classList.remove('active'); $('#sidebar').classList.remove('mobile-open');
+  renderContacts(); renderPremiumChannels(); updateChatHeader(); await loadMessages();
+}
+$('#createChannelBtn')?.addEventListener('click',()=>{
+  if(!premiumActive())return openModal('premiumModal');
+  $('#channelCreateModal').classList.remove('hidden');
+});
+$('#channelCreateForm')?.addEventListener('submit',async e=>{
+  e.preventDefault();
+  const name=$('#channelName').value.trim();
+  const isPublic=$('#channelPrivacy').value==='public';
+  const invites=$('#channelInvites').value.split(',').map(x=>x.trim()).filter(Boolean);
+  try{
+    await api('/api/channels',{method:'POST',body:JSON.stringify({name,isPublic,invites})});
+    e.currentTarget.reset(); closeModal('channelCreateModal'); toast('Канал создан'); await loadPremiumChannels();
+  }catch(err){toast(err.message)}
+});
+
+const premiumBaseStartApp=startApp;
+startApp=async function(){
+  await premiumBaseStartApp();
+  if(!me)return;
+  await loadPremiumChannels();
+  const key=`205premium-promo-${me.id}`;
+  if(!localStorage.getItem(key)){setTimeout(()=>$('#premiumPromo')?.classList.remove('hidden'),550)}
+};
+$('#promoLater')?.addEventListener('click',()=>{if(me)localStorage.setItem(`205premium-promo-${me.id}`,'1');closeModal('premiumPromo')});
+$('#promoOpenPremium')?.addEventListener('click',()=>{if(me)localStorage.setItem(`205premium-promo-${me.id}`,'1');closeModal('premiumPromo');openModal('premiumModal')});
+$('#sidePremium')?.addEventListener('click',()=>{$('#sideMenu').classList.add('hidden');$('#sidebar').classList.remove('mobile-open');openModal('premiumModal')});
+
+function syncPremiumModal(){
+  const el=$('#premiumStatusText'); if(!el||!me)return;
+  el.textContent=me.premium&&me.premiumUntil?`Активен до ${new Date(me.premiumUntil).toLocaleDateString()}`:'Premium не активен';
+}
+const premiumSyncBase=syncMeUI;
+syncMeUI=function(){ premiumSyncBase(); syncPremiumModal(); };
+$$('[data-premium-plan]').forEach(b=>b.onclick=async()=>{
+  const months=Number(b.dataset.premiumPlan);
+  if(!confirm(`Оформить заявку на Chatics Premium: ${months} мес.? Перед оплатой проверь функции Premium в этом окне.`))return;
+  try{
+    await api('/api/premium/purchase',{method:'POST',body:JSON.stringify({months})});
+    closeModal('premiumModal'); await openSupportUser(); toast('Бот прислал реквизиты для Premium');
+  }catch(e){toast(e.message)}
+});
+
+// Support command #купить premium👑. The modal is shown first so the user sees all features before purchase.
+const premiumShowSupportBase=showSupportCommands;
+showSupportCommands=function(mode='main'){
+  premiumShowSupportBase(mode);
+  const bar=supportCommandBar(); if(mode==='main'&&bar&&!bar.querySelector('[data-support-cmd="premium"]')){
+    const btn=document.createElement('button');btn.type='button';btn.dataset.supportCmd='premium';btn.textContent='# купить premium👑';bar.appendChild(btn);
+  }
+};
+supportCommandBar()?.addEventListener('click',e=>{
+  const btn=e.target.closest('[data-support-cmd="premium"]');if(!btn)return;
+  e.preventDefault();e.stopPropagation();hideSupportCommands();openModal('premiumModal');
+});
+
+// Admin: Premium requests
+async function loadPremiumRequestsAdmin(){
+  if(!me?.isAdmin)return;
+  try{
+    const d=await api('/api/admin/premium-requests');const box=$('#premiumRequestList');if(!box)return;box.innerHTML='';
+    (d.requests||[]).forEach(r=>{
+      const row=document.createElement('div');row.className='purchase-row premium-request-row';
+      row.innerHTML=`<div><b>@${escapeHtml(r.user?.username||'Удалён')} · ${r.months} мес.</b><span>${r.rub}₽ · ${r.status==='approved'?'выдан':r.status==='rejected'?'отклонён':r.status==='paid'?'оплата отмечена':'ожидает оплаты'}</span><small>${new Date(r.createdAt).toLocaleString()}</small></div>${['pending','paid'].includes(r.status)?'<div class="purchase-actions"><button class="verify-btn premium-approve">Выдать</button><button class="verify-btn danger-market premium-reject">Отклонить</button></div>':''}`;
+      row.querySelector('.premium-approve')?.addEventListener('click',async()=>{try{await api('/api/admin/premium-requests/'+encodeURIComponent(r.id)+'/approve',{method:'POST'});toast('Premium выдан');await loadPremiumRequestsAdmin()}catch(e){toast(e.message)}});
+      row.querySelector('.premium-reject')?.addEventListener('click',async()=>{try{await api('/api/admin/premium-requests/'+encodeURIComponent(r.id)+'/reject',{method:'POST'});toast('Заявка отклонена');await loadPremiumRequestsAdmin()}catch(e){toast(e.message)}});
+      box.appendChild(row);
+    });
+    if(!box.children.length)box.innerHTML='<div class="empty-state">Заявок Premium пока нет</div>';
+  }catch(e){toast(e.message)}
+}
+$('#refreshPremiumRequests')?.addEventListener('click',loadPremiumRequestsAdmin);
+
+// Attach palette: media / files / poll.
+const attachBtnEl=$('#attachBtn'),attachMenuEl=$('#attachMenu');
+if(attachBtnEl)attachBtnEl.onclick=e=>{e.stopPropagation();attachMenuEl?.classList.toggle('hidden')};
+document.addEventListener('click',e=>{if(!e.target.closest('#attachMenu')&&!e.target.closest('#attachBtn'))attachMenuEl?.classList.add('hidden')});
+attachMenuEl?.addEventListener('click',e=>{
+  const b=e.target.closest('[data-attach]');if(!b)return;
+  attachMenuEl.classList.add('hidden');
+  if(b.dataset.attach==='media')$('#mediaInput').click();
+  if(b.dataset.attach==='file')$('#fileInput').click();
+  if(b.dataset.attach==='poll'){
+    if(!premiumActive())return openModal('premiumModal');
+    openModal('pollModal');
+  }
+});
+$('#fileInput')?.addEventListener('change',async()=>{
+  const file=$('#fileInput').files[0];if(!file)return;
+  try{toast('Загрузка файла…');const data=await uploadFile(file,'file');showPendingMedia(data,file)}catch(e){toast(e.message);$('#fileInput').value=''}
+});
+$('#pollForm')?.addEventListener('submit',e=>{
+  e.preventDefault();
+  if(!premiumActive())return openModal('premiumModal');
+  if(!socket?.connected)return toast('Нет соединения');
+  if(currentChannel&&!currentChannel.mine)return toast('В канале может писать только его создатель');
+  const question=$('#pollQuestion').value.trim(),options=$('#pollOptions').value.split('\n').map(x=>x.trim()).filter(Boolean);
+  if(question.length<2||options.length<2)return toast('Добавь вопрос и минимум 2 варианта');
+  socket.emit('send-message',{type:'poll',poll:{question,options},recipientId:currentChannel?null:(currentPeer||null),channelId:currentChannel?.id||null});
+  closeModal('pollModal');e.currentTarget.reset();
+});
+
+// Voice: tap 🎙 starts immediately. Same button pauses/resumes; sending while paused also finalizes it.
+function updateVoiceModeButton(){
+  const b=$('#modeVoice');if(!b)return;
+  if(recordMode==='voice'&&mediaRecorder?.state==='recording'){b.textContent='стоп🟥';b.title='Пауза';}
+  else if(recordMode==='voice'&&mediaRecorder?.state==='paused'){b.textContent='запись🎙';b.title='Продолжить запись';}
+  else{b.textContent='🎙';b.title='Голосовое';}
+}
+const premiumStopRecordingBase=stopRecording;
+stopRecording=function(sendIt){
+  if(!mediaRecorder||!['recording','paused'].includes(mediaRecorder.state))return;
+  recordCanceled=!sendIt;
+  try{if(mediaRecorder.state==='recording')mediaRecorder.requestData?.()}catch{}
+  try{mediaRecorder.stop()}catch(err){console.error(err);toast('Не удалось завершить запись');v015StopAllTracks?.();mediaRecorder=null}
+  voicePaused=false;updateVoiceModeButton();
+};
+$('#modeVoice').onclick=async()=>{
+  if(recordMode==='video'&&mediaRecorder&&['recording','paused'].includes(mediaRecorder.state))return;
+  setRecordMode('voice');
+  if(!mediaRecorder||mediaRecorder.state==='inactive')return startRecording();
+  if(mediaRecorder.state==='recording'){
+    try{mediaRecorder.pause();voicePaused=true;clearInterval(recordTimer);recordTimer=null;$('#recordLabel').textContent='Голосовое на паузе';updateVoiceModeButton()}catch(e){toast('Пауза не поддерживается')}
+  }else if(mediaRecorder.state==='paused'){
+    try{mediaRecorder.resume();voicePaused=false;recordStarted=Date.now();recordTimer=setInterval(updateRecordClock,250);$('#recordLabel').textContent='Запись голосового…';updateVoiceModeButton()}catch(e){toast('Не удалось продолжить запись')}
+  }
+};
+const premiumStartRecordingBase=startRecording;
+startRecording=async function(){
+  if(currentChannel&&!currentChannel.mine)return toast('В канале может писать только его создатель');
+  await premiumStartRecordingBase();
+  updateVoiceModeButton();
+};
+const premiumFinishRecordingBase=finishRecording;
+finishRecording=async function(){
+  await premiumFinishRecordingBase();
+  voicePaused=false;updateVoiceModeButton();
+};
+const premiumSendBase=send;
+send=function(){
+  if(mediaRecorder&&mediaRecorder.state==='paused'){stopRecording(true);return}
+  return premiumSendBase();
+};
+$('#send').onclick=send;
+
+// Ensure recorded audio/video is posted into the currently open channel when relevant.
+const premiumUploadFinishBase=finishRecording;
+finishRecording=async function(){
+  clearInterval(recordTimer);recordTimer=null;
+  $('#recordingBar').classList.add('hidden');$('#videoRecorder').classList.add('hidden');document.body.classList.remove('video-recording');$('#recordBtn').classList.remove('recording');$('#recordBtn').disabled=false;
+  const wasMode=recordMode,chunks=[...recordChunks];
+  const rawMime=mediaRecorder?.mimeType||(wasMode==='video'?'video/webm':'audio/webm');
+  const mime=rawMime.includes('mp4')?(wasMode==='video'?'video/mp4':'audio/mp4'):(wasMode==='video'?'video/webm':'audio/webm');
+  v015StopAllTracks();mediaRecorder=null;recordChunks=[];voicePaused=false;updateVoiceModeButton();
+  if(recordCanceled||!chunks.length){recordCanceled=false;return}
+  try{
+    toast('Отправка записи…');
+    const blob=new Blob(chunks,{type:mime});if(!blob.size)throw new Error('Запись получилась пустой — попробуй ещё раз');
+    const ext=mime.includes('mp4')?'mp4':'webm',file=new File([blob],`${wasMode==='video'?'triangle':'voice'}-${Date.now()}.${ext}`,{type:mime});
+    const up=await uploadFile(file,wasMode==='video'?'video':'audio');if(!socket?.connected)throw new Error('Нет соединения с сервером');
+    socket.emit('send-message',{type:wasMode==='video'?'video':'audio',mediaUrl:up.url,fileName:up.name,mime:up.mime||mime,recipientId:currentChannel?null:(currentPeer||null),channelId:currentChannel?.id||null,replyTo:replyTo?.id||null});
+    clearReply();toast(wasMode==='video'?'Видео-треугольник отправлен':'Голосовое отправлено');
+  }catch(err){console.error(err);toast(err.message||'Не удалось отправить запись')}
+};
+
+// Composer access in channels.
+const premiumHeaderBase=updateChatHeader;
+updateChatHeader=function(...args){
+  premiumHeaderBase(...args);
+  const locked=!!currentChannel&&!currentChannel.mine;
+  const input=$('#messageInput'); if(input){input.disabled=locked;input.placeholder=locked?'В этом канале пишет только создатель':'Сообщение'}
+  ['#attachBtn','#modeVoice','#modeVideo','#send'].forEach(sel=>{const e=$(sel);if(e)e.disabled=locked});
+};
+const premiumOpenPeerBase=openPeer;
+openPeer=async function(u){currentChannel=null;await premiumOpenPeerBase(u);renderPremiumChannels()};
+const premiumGlobalClick=$('#globalChat').onclick;
+$('#globalChat').onclick=async()=>{currentChannel=null;await premiumGlobalClick();renderPremiumChannels()};
+
+// Socket hooks for polls/channels/presence.
+const premiumConnectBase=connect;
+connect=function(){
+  premiumConnectBase();
+  socket.on('poll-updated',x=>{
+    const row=document.querySelector(`.msg[data-id="${CSS.escape(x.id)}"]`);if(!row)return;
+    loadMessages();
+  });
+  socket.on('send-error',x=>toast(x?.error||'Сообщение не отправлено'));
+};
+
+// Keep channel list refreshed after profile/premium changes.
+setInterval(()=>{if(token&&me)loadPremiumChannels()},30000);
+
+// Existing saved sessions start before the final wrappers above are installed.
+// Finish the Premium/channel initialization once the page script is fully loaded.
+setTimeout(async()=>{
+  if(!token||!me)return;
+  await loadPremiumChannels();
+  syncPremiumModal();
+  const key=`205premium-promo-${me.id}`;
+  if(!localStorage.getItem(key)&&$('#premiumPromo')?.classList.contains('hidden'))$('#premiumPromo').classList.remove('hidden');
+  if(socket){
+    socket.on('poll-updated',()=>{if(currentChannel||currentPeer||!supportMode)loadMessages()});
+    socket.on('send-error',x=>toast(x?.error||'Сообщение не отправлено'));
+  }
+},900);
+
+// Typing the Premium command manually works too.
+const premiumTypedSendBase=send;
+send=function(){
+  const text=$('#messageInput')?.value?.trim()||'';
+  if(supportMode==='user'&&/^#\s*(купить\s*)?premium\s*👑?$/i.test(text)){
+    $('#messageInput').value='';hideSupportCommands();openModal('premiumModal');return;
+  }
+  return premiumTypedSendBase();
+};
+$('#send').onclick=send;

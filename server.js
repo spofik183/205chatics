@@ -60,7 +60,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 function defaultDb(){
   return {
     users: [], messages: [], gifts: [], purchases: [], supportThreads: {},
-    giftCatalog: [], referrals: [], maintenanceUntil: null,
+    giftCatalog: [], referrals: [], premiumRequests: [], channels: [], maintenanceUntil: null,
     channel: { name:'205chat', avatarUrl:'', description:'Общий чат 205chating', verified:true }
   };
 }
@@ -70,17 +70,21 @@ function loadDb(){
     parsed.users ||= []; parsed.messages ||= []; parsed.gifts ||= []; parsed.purchases ||= []; parsed.supportThreads ||= {};
     parsed.giftCatalog ||= [];
     parsed.referrals ||= [];
+    parsed.premiumRequests ||= [];
+    parsed.channels ||= [];
     parsed.referrals = parsed.referrals.map(r=>({id:r.id||crypto.randomUUID(),code:String(r.code||'').trim(),berries:Math.max(1,Math.trunc(Number(r.berries)||1)),createdAt:r.createdAt||new Date().toISOString(),createdBy:r.createdBy||null,claimedUserIds:Array.isArray(r.claimedUserIds)?r.claimedUserIds:[]})).filter(r=>r.code);
+    parsed.premiumRequests = parsed.premiumRequests.map(p=>({id:p.id||crypto.randomUUID(),userId:p.userId,months:[1,3,6].includes(Number(p.months))?Number(p.months):1,rub:Number(p.rub)||139,status:p.status||'pending',createdAt:p.createdAt||new Date().toISOString(),updatedAt:p.updatedAt||p.createdAt||new Date().toISOString()})).filter(p=>p.userId);
+    parsed.channels = parsed.channels.map(c=>({id:c.id||crypto.randomUUID(),name:String(c.name||'Канал').slice(0,60),ownerId:c.ownerId||null,isPublic:c.isPublic!==false,members:Array.isArray(c.members)?c.members:[],createdAt:c.createdAt||new Date().toISOString()})).filter(c=>c.ownerId);
     parsed.maintenanceUntil ||= null;
     // v10: базовых подарков больше нет. Рынок полностью создаёт администратор.
     parsed.giftCatalog = parsed.giftCatalog.filter(g=>!g.seed).map(g=>({id:g.id||crypto.randomUUID(),key:g.key||g.id||crypto.randomUUID(),name:String(g.name||'Подарок'),price:Math.max(1,Math.trunc(Number(g.price)||1)),image:g.image||'',type:g.type==='nft'?'nft':'gift',totalSupply:Math.max(1,Math.trunc(Number(g.totalSupply)||1)),remaining:Math.max(0,Math.trunc(Number(g.remaining ?? g.totalSupply)||0)),createdAt:g.createdAt||new Date().toISOString(),releaseAt:g.releaseAt||null,createdBy:g.createdBy||null}));
     parsed.channel ||= {name:'205chat',avatarUrl:'',description:'Общий чат 205chating',verified:true};
     parsed.channel.name='205chat'; parsed.channel.verified=true; parsed.channel.avatarUrl ||= ''; parsed.channel.description ||= 'Общий чат 205chating';
     for(const u of parsed.users){
-      u.contacts ||= []; u.blocked ||= []; u.avatarUrl ||= ''; u.bio ||= ''; u.hidePhone = !!u.hidePhone; u.online = false; u.strawberries = Math.max(0,Number(u.strawberries)||0); u.featuredGiftId ||= null;
+      u.contacts ||= []; u.blocked ||= []; u.avatarUrl ||= ''; u.bio ||= ''; u.hidePhone = !!u.hidePhone; u.online = false; u.strawberries = Math.max(0,Number(u.strawberries)||0); u.featuredGiftId ||= null; u.premiumUntil ||= null;
     }
     for(const m of parsed.messages){
-      m.chatType ||= 'global'; m.recipientId ||= null; m.viewers ||= []; m.reactions ||= {}; m.hiddenFor ||= []; m.replyTo ||= null; m.pinned = !!m.pinned; m.giftId ||= null;
+      m.chatType ||= 'global'; m.recipientId ||= null; m.channelId ||= null; m.viewers ||= []; m.reactions ||= {}; m.hiddenFor ||= []; m.replyTo ||= null; m.pinned = !!m.pinned; m.giftId ||= null; m.poll ||= null;
     }
     for(const [uid,thread] of Object.entries(parsed.supportThreads)){
       thread.userId ||= uid; thread.visible = thread.visible !== false; thread.messages ||= []; thread.createdAt ||= new Date().toISOString();
@@ -107,20 +111,24 @@ const normalizeUsername = username => String(username||'').trim().replace(/^@/,'
 const isRootAdmin = u => u?.phone === ADMIN_PHONE;
 const giftDef = key => db.giftCatalog.find(g=>g.key===key||g.id===key) || null;
 const giftRecord = id => db.gifts.find(g=>g.id===id) || null;
+const isPremium = u => !!u && !!u.premiumUntil && new Date(u.premiumUntil).getTime() > Date.now();
+const premiumPlan = months => ({1:139,3:319,6:509}[Number(months)]||null);
+const channelFor = id => db.channels.find(c=>c.id===id)||null;
+function canAccessChannel(c,u){return !!c&&(c.isPublic||c.ownerId===u.id||(c.members||[]).includes(u.id));}
 function giftSummary(id){
   const r=giftRecord(id); if(!r)return null; const def=giftDef(r.giftKey); if(!def)return null;
   return {id:r.id,giftKey:r.giftKey,name:def.name,image:def.image,price:r.price,type:def.type||'gift',serial:r.serial||null,totalSupply:def.totalSupply||null};
 }
 function cleanUser(u,viewer=null){
   const canSeePhone = !u.hidePhone || viewer?.id===u.id || viewer?.isAdmin;
-  return {id:u.id,phone:canSeePhone?u.phone:'',phoneHidden:!!u.hidePhone,username:u.username,avatarUrl:u.avatarUrl||'',bio:u.bio||'',isAdmin:!!u.isAdmin,verified:!!u.verified,online:!!u.online,createdAt:u.createdAt,strawberries:Math.max(0,Number(u.strawberries)||0),featuredGift:giftSummary(u.featuredGiftId),blockedByMe:!!viewer?.blocked?.includes?.(u.id)};
+  return {id:u.id,phone:canSeePhone?u.phone:'',phoneHidden:!!u.hidePhone,username:u.username,avatarUrl:u.avatarUrl||'',bio:u.bio||'',isAdmin:!!u.isAdmin,verified:!!u.verified,online:!!u.online,createdAt:u.createdAt,strawberries:Math.max(0,Number(u.strawberries)||0),featuredGift:giftSummary(u.featuredGiftId),blockedByMe:!!viewer?.blocked?.includes?.(u.id),premium:isPremium(u),premiumUntil:u.premiumUntil||null};
 }
 function adminUser(u){ return {...cleanUser(u,{isAdmin:true}),rootAdmin:isRootAdmin(u)}; }
 
 async function ensureAdmin(){
   let admin=db.users.find(u=>u.phone===ADMIN_PHONE||u.username===ADMIN_USERNAME);
   if(!admin){
-    admin={id:crypto.randomUUID(),phone:ADMIN_PHONE,username:ADMIN_USERNAME,passwordHash:await bcrypt.hash(ADMIN_PASSWORD,10),avatarUrl:'',bio:'',isAdmin:true,verified:true,online:false,contacts:[],blocked:[],strawberries:0,featuredGiftId:null,createdAt:new Date().toISOString()};
+    admin={id:crypto.randomUUID(),phone:ADMIN_PHONE,username:ADMIN_USERNAME,passwordHash:await bcrypt.hash(ADMIN_PASSWORD,10),avatarUrl:'',bio:'',isAdmin:true,verified:true,online:false,contacts:[],blocked:[],strawberries:0,featuredGiftId:null,premiumUntil:null,createdAt:new Date().toISOString()};
     db.users.push(admin);
   }else{
     admin.phone=ADMIN_PHONE; admin.username=ADMIN_USERNAME; admin.isAdmin=true; admin.verified=true; admin.contacts||=[]; admin.blocked||=[]; admin.avatarUrl||=''; admin.bio||=''; admin.strawberries=Math.max(0,Number(admin.strawberries)||0);
@@ -151,7 +159,7 @@ const upload=multer({
   fileFilter:(_req,file,cb)=>{
     const mime=String(file.mimetype||'').toLowerCase();
     const ext=path.extname(file.originalname||'').toLowerCase();
-    const known=['.jpg','.jpeg','.png','.webp','.gif','.avif','.webm','.mp4','.mov','.m4v','.ogg','.opus','.m4a','.mp3','.wav'];
+    const known=['.jpg','.jpeg','.png','.webp','.gif','.avif','.webm','.mp4','.mov','.m4v','.ogg','.opus','.m4a','.mp3','.wav','.pdf','.txt','.zip','.doc','.docx'];
     if(mime.startsWith('image/')||mime.startsWith('video/')||mime.startsWith('audio/')||mime==='application/octet-stream'||known.includes(ext))return cb(null,true);
     cb(new Error('Недопустимый тип файла'));
   }
@@ -168,7 +176,7 @@ app.post('/api/register',authRateLimit,async(req,res)=>{
   if(password.length<6)return res.status(400).json({error:'Пароль минимум 6 символов'});
   if(db.users.some(u=>u.phone===phone))return res.status(409).json({error:'Этот номер уже зарегистрирован'});
   if(db.users.some(u=>u.username.toLowerCase()===username.toLowerCase()))return res.status(409).json({error:'Этот username уже занят'});
-  const u={id:crypto.randomUUID(),phone,username,passwordHash:await bcrypt.hash(password,10),avatarUrl:'',bio:'',isAdmin:false,verified:false,online:false,contacts:[],blocked:[],strawberries:0,featuredGiftId:null,createdAt:new Date().toISOString()};
+  const u={id:crypto.randomUUID(),phone,username,passwordHash:await bcrypt.hash(password,10),avatarUrl:'',bio:'',isAdmin:false,verified:false,online:false,contacts:[],blocked:[],strawberries:0,featuredGiftId:null,premiumUntil:null,createdAt:new Date().toISOString()};
   db.users.push(u); saveDb(); io.emit('participants',db.users.length); res.json({token:tokenFor(u),user:cleanUser(u,u)});
 });
 app.post('/api/login',authRateLimit,async(req,res)=>{
@@ -232,7 +240,7 @@ app.post('/api/upload',auth,writeRateLimit,upload.single('file'),(req,res)=>{
   if(original.startsWith('voice-')) type='audio';
   if(type==='video'&&!mime.startsWith('video/')) mime=ext==='.mp4'||ext==='.mov'||ext==='.m4v'?'video/mp4':'video/webm';
   if(type==='audio'&&!mime.startsWith('audio/')) mime=ext==='.mp4'||ext==='.m4a'?'audio/mp4':'audio/webm';
-  if(type==='file'){fs.unlink(req.file.path,()=>{});return res.status(400).json({error:'Можно отправлять только фото, видео и голосовые сообщения'})}
+  if(type==='file'&&!['.pdf','.txt','.zip','.doc','.docx'].includes(ext)){fs.unlink(req.file.path,()=>{});return res.status(400).json({error:'Этот тип файла не поддерживается'})}
   res.json({url:`/uploads/${req.file.filename}`,type,mime,name:String(req.file.originalname||'').slice(0,120),size:req.file.size});
 });
 app.get('/api/stats',auth,(_req,res)=>res.json({participants:db.users.length}));
@@ -255,11 +263,13 @@ app.delete('/api/private/:id/messages',auth,(req,res)=>{ const peer=db.users.fin
 function canSeeMessage(m,u){
   if((m.hiddenFor||[]).includes(u.id))return false;
   if((m.chatType||'global')==='global')return true;
+  if((m.chatType||'global')==='channel')return canAccessChannel(channelFor(m.channelId),u);
   return m.userId===u.id||m.recipientId===u.id;
 }
 function sameConversation(a,b){
   if((a.chatType||'global')!==(b.chatType||'global'))return false;
   if((a.chatType||'global')==='global')return true;
+  if((a.chatType||'global')==='channel')return a.channelId===b.channelId;
   return [a.userId,a.recipientId].sort().join('|')===[b.userId,b.recipientId].sort().join('|');
 }
 function serializeMessage(m,viewer){
@@ -274,14 +284,18 @@ function serializeMessage(m,viewer){
     id:m.id,text:m.text||'',type:m.type||'text',mediaUrl:m.mediaUrl||'',fileName:m.fileName||'',mime:m.mime||'',createdAt:m.createdAt,
     anonymous:!!m.anonymous,mine:viewer.id===m.userId,sender:hiddenByAnon?anonymousSender:visibleSender,
     anonymousRealSender:m.anonymous&&viewer.isAdmin&&sender?{id:sender.id,username:sender.username,phone:sender.phone}:null,
-    chatType:m.chatType||'global',recipientId:m.recipientId||null,views:(m.viewers||[]).length,reactions,pinned:!!m.pinned,
+    chatType:m.chatType||'global',recipientId:m.recipientId||null,channelId:m.channelId||null,views:(m.viewers||[]).length,reactions,pinned:!!m.pinned,
     gift:gift&&giftInfo?{...giftInfo,letter:gift.letter||'',sender:giftSender?cleanUser(giftSender):null}:null,
+    poll:m.poll?{question:m.poll.question,options:(m.poll.options||[]).map(o=>({id:o.id,text:o.text,count:(o.voters||[]).length,mine:(o.voters||[]).includes(viewer.id)}))}:null,
     replyTo:reply?{id:reply.id,text:(reply.text||({image:'Фото',video:'Видео',audio:'Голосовое',gift:'Подарок'}[reply.type]||'')).slice(0,90),sender:replySender?.username||'Пользователь'}:null
   };
 }
 app.get('/api/messages',auth,(req,res)=>{
-  const peer=String(req.query.peer||''); let items=db.messages.filter(m=>canSeeMessage(m,req.user));
-  if(peer)items=items.filter(m=>(m.chatType||'global')==='private'&&((m.userId===req.user.id&&m.recipientId===peer)||(m.userId===peer&&m.recipientId===req.user.id)));
+  const peer=String(req.query.peer||''), channelId=String(req.query.channel||''); let items=db.messages.filter(m=>canSeeMessage(m,req.user));
+  if(channelId){
+    const c=channelFor(channelId);if(!canAccessChannel(c,req.user))return res.status(403).json({error:'Нет доступа к каналу'});
+    items=items.filter(m=>(m.chatType||'global')==='channel'&&m.channelId===channelId);
+  }else if(peer)items=items.filter(m=>(m.chatType||'global')==='private'&&((m.userId===req.user.id&&m.recipientId===peer)||(m.userId===peer&&m.recipientId===req.user.id)));
   else items=items.filter(m=>(m.chatType||'global')==='global');
   res.json({messages:items.slice(-300).map(m=>serializeMessage(m,req.user))});
 });
@@ -352,7 +366,13 @@ app.post('/api/support/open',auth,(req,res)=>{
 app.delete('/api/support/hide',auth,(req,res)=>{const t=getThread(req.user.id,false);if(t)t.visible=false;saveDb();emitSupportUpdate(req.user.id);res.json({ok:true});});
 app.get('/api/support/messages',auth,(req,res)=>{const t=getThread(req.user.id,true);res.json({messages:t.messages.map(m=>serializeSupportMessage(m,req.user,req.user))});});
 app.post('/api/support/messages',auth,(req,res)=>{const text=String(req.body.text||'').trim();if(!text)return res.status(400).json({error:'Напишите сообщение'});const t=getThread(req.user.id,true);const m=pushSupport(req.user.id,'user',text);let botMessage=null;if(!t.humanJoined){
-  if(/^успешно\s*✅?$/i.test(text)){const p=db.purchases.filter(x=>x.userId===req.user.id&&x.status==='pending').sort((a,b)=>String(b.createdAt).localeCompare(String(a.createdAt)))[0];if(p){p.status='paid';p.updatedAt=new Date().toISOString();botMessage=pushSupport(req.user.id,'bot',`Спасибо! Заявка на ${p.berries}🍓 отправлена администратору на проверку. После подтверждения клубнички появятся на балансе.`);}else botMessage=pushSupport(req.user.id,'bot','Не вижу активной заявки на пополнение. Нажми на поле сообщения → «# пополнить клубнички🍓» и сначала выбери пакет.');}
+  if(/^успешно\s*✅?$/i.test(text)){
+    const pp=db.premiumRequests.filter(x=>x.userId===req.user.id&&x.status==='pending').sort((a,b)=>String(b.createdAt).localeCompare(String(a.createdAt)))[0];
+    const p=db.purchases.filter(x=>x.userId===req.user.id&&x.status==='pending').sort((a,b)=>String(b.createdAt).localeCompare(String(a.createdAt)))[0];
+    if(pp){pp.status='paid';pp.updatedAt=new Date().toISOString();botMessage=pushSupport(req.user.id,'bot',`Спасибо! Заявка на Chatics Premium (${pp.months} мес.) отправлена администратору на проверку. После подтверждения Premium активируется автоматически.`);}
+    else if(p){p.status='paid';p.updatedAt=new Date().toISOString();botMessage=pushSupport(req.user.id,'bot',`Спасибо! Заявка на ${p.berries}🍓 отправлена администратору на проверку. После подтверждения клубнички появятся на балансе.`);}
+    else botMessage=pushSupport(req.user.id,'bot','Не вижу активной заявки. Сначала выбери пакет клубничек или тариф Chatics Premium.');
+  }
   else botMessage=pushSupport(req.user.id,'bot',miniAiReply(text));
 }saveDb();emitSupportUpdate(req.user.id);res.json({message:serializeSupportMessage(m,req.user,req.user),botMessage:botMessage?serializeSupportMessage(botMessage,req.user,req.user):null});});
 app.get('/api/admin/support/threads',auth,adminOnly,(req,res)=>{
@@ -414,6 +434,52 @@ app.post('/api/referrals/claim',auth,(req,res)=>{
   req.user.strawberries=Math.max(0,Number(req.user.strawberries)||0)+r.berries;r.claimedUserIds.push(req.user.id);saveDb();io.emit('user-updated',cleanUser(req.user));res.json({ok:true,berries:r.berries,balance:req.user.strawberries});
 });
 
+
+app.delete('/api/admin/referrals/:id',auth,adminOnly,(req,res)=>{
+  const i=db.referrals.findIndex(r=>r.id===req.params.id);if(i<0)return res.status(404).json({error:'Реферальная ссылка не найдена'});
+  db.referrals.splice(i,1);saveDb();res.json({ok:true});
+});
+
+// Chatics Premium
+app.get('/api/premium',auth,(req,res)=>res.json({active:isPremium(req.user),until:req.user.premiumUntil||null,plans:[{months:1,rub:139},{months:3,rub:319},{months:6,rub:509}]}));
+app.post('/api/premium/purchase',auth,(req,res)=>{
+  const months=Number(req.body.months),rub=premiumPlan(months);if(!rub)return res.status(400).json({error:'Неверный тариф'});
+  const existing=db.premiumRequests.find(p=>p.userId===req.user.id&&['pending','paid'].includes(p.status));
+  if(existing)return res.status(409).json({error:'У тебя уже есть заявка Premium на проверке'});
+  const p={id:crypto.randomUUID(),userId:req.user.id,months,rub,status:'pending',createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()};
+  db.premiumRequests.push(p);
+  pushSupport(req.user.id,'bot',`Chatics Premium 👑\nТариф: ${months} мес. — ${rub}₽\nПереведи ${rub}₽ на ${PAYMENT_PHONE}. После оплаты напиши «успешно✅». Администратор проверит перевод и выдаст Premium.`,{premiumRequestId:p.id});
+  saveDb();emitSupportUpdate(req.user.id);res.json({request:p,paymentPhone:PAYMENT_PHONE});
+});
+app.get('/api/admin/premium-requests',auth,adminOnly,(req,res)=>res.json({requests:db.premiumRequests.slice().reverse().map(p=>({...p,user:cleanUser(db.users.find(u=>u.id===p.userId)||{id:null,username:'Удалён',phone:''})}))}));
+app.post('/api/admin/premium-requests/:id/approve',auth,adminOnly,(req,res)=>{
+  const p=db.premiumRequests.find(x=>x.id===req.params.id);if(!p)return res.status(404).json({error:'Заявка не найдена'});if(!['pending','paid'].includes(p.status))return res.status(400).json({error:'Заявка уже обработана'});
+  const u=db.users.find(x=>x.id===p.userId);if(!u)return res.status(404).json({error:'Пользователь не найден'});
+  const base=Math.max(Date.now(),u.premiumUntil?new Date(u.premiumUntil).getTime():0);const d=new Date(base);d.setMonth(d.getMonth()+p.months);u.premiumUntil=d.toISOString();p.status='approved';p.updatedAt=new Date().toISOString();p.approvedBy=req.user.id;saveDb();io.emit('user-updated',cleanUser(u));emitSupportUpdate(u.id);res.json({ok:true,user:adminUser(u)});
+});
+app.post('/api/admin/premium-requests/:id/reject',auth,adminOnly,(req,res)=>{
+  const p=db.premiumRequests.find(x=>x.id===req.params.id);if(!p)return res.status(404).json({error:'Заявка не найдена'});if(!['pending','paid'].includes(p.status))return res.status(400).json({error:'Заявка уже обработана'});
+  p.status='rejected';p.updatedAt=new Date().toISOString();saveDb();emitSupportUpdate(p.userId);res.json({ok:true});
+});
+
+// Premium channels
+app.get('/api/channels',auth,(req,res)=>{
+  const channels=db.channels.filter(c=>canAccessChannel(c,req.user)).map(c=>({...c,owner:cleanUser(db.users.find(u=>u.id===c.ownerId)||{id:null,username:'Удалён',phone:''}),mine:c.ownerId===req.user.id}));
+  res.json({channels});
+});
+app.post('/api/channels',auth,(req,res)=>{
+  if(!isPremium(req.user))return res.status(403).json({error:'Создание каналов доступно в Chatics Premium'});
+  const name=String(req.body.name||'').trim().slice(0,60);if(name.length<2)return res.status(400).json({error:'Название канала слишком короткое'});
+  const isPublic=req.body.isPublic!==false;const inviteNames=Array.isArray(req.body.invites)?req.body.invites:[];
+  const members=[...new Set(inviteNames.map(x=>normalizeUsername(x).toLowerCase()).map(n=>db.users.find(u=>u.username.toLowerCase()===n)?.id).filter(Boolean).filter(id=>id!==req.user.id))];
+  const c={id:crypto.randomUUID(),name,ownerId:req.user.id,isPublic,members,createdAt:new Date().toISOString()};db.channels.push(c);saveDb();res.json({channel:{...c,owner:cleanUser(req.user),mine:true}});
+});
+app.post('/api/channels/:id/invite',auth,(req,res)=>{
+  const c=channelFor(req.params.id);if(!c)return res.status(404).json({error:'Канал не найден'});if(c.ownerId!==req.user.id)return res.status(403).json({error:'Только создатель канала может приглашать'});
+  const username=normalizeUsername(req.body.username).toLowerCase(),u=db.users.find(x=>x.username.toLowerCase()===username);if(!u)return res.status(404).json({error:'Пользователь не найден'});
+  c.members||=[];if(!c.members.includes(u.id))c.members.push(u.id);saveDb();res.json({ok:true});
+});
+
 // Strawberry purchases: manual payment verification by admin
 app.get('/api/strawberries/packages',auth,(_req,res)=>res.json({packages:PURCHASE_PACKAGES,paymentPhone:PAYMENT_PHONE}));
 app.post('/api/strawberries/purchase',auth,(req,res)=>{
@@ -442,6 +508,8 @@ app.delete('/api/admin/users/:id',auth,adminOnly,(req,res)=>{
   db.messages=db.messages.filter(m=>m.userId!==u.id&&m.recipientId!==u.id);
   db.gifts=db.gifts.filter(g=>g.receiverId!==u.id&&g.senderId!==u.id);
   db.purchases=db.purchases.filter(p=>p.userId!==u.id);
+  db.premiumRequests=db.premiumRequests.filter(p=>p.userId!==u.id);
+  db.channels=db.channels.filter(c=>c.ownerId!==u.id).map(c=>({...c,members:(c.members||[]).filter(id=>id!==u.id)}));
   delete db.supportThreads[u.id];
   for(const x of db.users){x.contacts=(x.contacts||[]).filter(id=>id!==u.id);x.blocked=(x.blocked||[]).filter(id=>id!==u.id);}
   saveDb();
@@ -497,18 +565,22 @@ io.on('connection',socket=>{
   socket.on('typing',payload=>{const isTyping=typeof payload==='object'?!!payload.isTyping:!!payload;const peerId=typeof payload==='object'?(payload.peerId||null):null;socket.broadcast.emit('typing',{userId:u.id,username:u.username,isTyping,peerId});});
   socket.on('send-message',payload=>{
     const now=Date.now(); if(now-messageWindowStart>10000){messageWindowStart=now;messageCount=0} if(++messageCount>35)return socket.emit('send-error',{error:'Слишком много сообщений. Подождите несколько секунд.'});
-    const text=String(payload?.text||'').trim().slice(0,4000); const type=['text','image','video','audio'].includes(payload?.type)?payload.type:'text'; const mediaUrl=String(payload?.mediaUrl||'');
-    if(type!=='text'&&!mediaUrl.startsWith('/uploads/'))return; if(type==='text'&&!text)return;
-    let recipientId=payload?.recipientId||null; const recipient=recipientId?db.users.find(x=>x.id===recipientId):null; if(recipientId&&!recipient)return; if(recipient){u.blocked||=[];recipient.blocked||=[];if(u.blocked.includes(recipient.id)||recipient.blocked.includes(u.id))return socket.emit('send-error',{error:'Сообщение не отправлено: один из пользователей заблокирован'});addMutualContact(u,recipient);}
+    const text=String(payload?.text||'').trim().slice(0,4000); const type=['text','image','video','audio','file','poll'].includes(payload?.type)?payload.type:'text'; const mediaUrl=String(payload?.mediaUrl||'');
+    if(!['text','poll'].includes(type)&&!mediaUrl.startsWith('/uploads/'))return; if(type==='text'&&!text)return;
+    let channelId=String(payload?.channelId||'')||null;let recipientId=channelId?null:(payload?.recipientId||null);
+    let channelObj=null;if(channelId){channelObj=channelFor(channelId);if(!canAccessChannel(channelObj,u))return socket.emit('send-error',{error:'Нет доступа к каналу'});if(channelObj.ownerId!==u.id)return socket.emit('send-error',{error:'В канале может писать только его создатель'});if(!isPremium(u))return socket.emit('send-error',{error:'Для публикации в канале нужен Chatics Premium'});}
+ const recipient=recipientId?db.users.find(x=>x.id===recipientId):null; if(recipientId&&!recipient)return; if(recipient){u.blocked||=[];recipient.blocked||=[];if(u.blocked.includes(recipient.id)||recipient.blocked.includes(u.id))return socket.emit('send-error',{error:'Сообщение не отправлено: один из пользователей заблокирован'});addMutualContact(u,recipient);}
     const reply=payload?.replyTo?db.messages.find(x=>x.id===payload.replyTo):null;
-    const m={id:crypto.randomUUID(),userId:u.id,text,type,mediaUrl:type==='text'?'':mediaUrl,fileName:String(payload?.fileName||'').slice(0,120),mime:String(payload?.mime||'').slice(0,80),anonymous:!!payload?.anonymous&&!recipientId,chatType:recipientId?'private':'global',recipientId:recipientId||null,createdAt:new Date().toISOString(),viewers:[],reactions:{},hiddenFor:[],replyTo:reply&&canSeeMessage(reply,u)?reply.id:null,pinned:false,giftId:null};
+    let poll=null;if(type==='poll'){if(!isPremium(u))return socket.emit('send-error',{error:'Опросы доступны в Chatics Premium'});const q=String(payload?.poll?.question||text||'').trim().slice(0,180);const opts=(Array.isArray(payload?.poll?.options)?payload.poll.options:[]).map(x=>String(x||'').trim().slice(0,80)).filter(Boolean).slice(0,8);if(q.length<2||opts.length<2)return socket.emit('send-error',{error:'В опросе нужно минимум 2 варианта'});poll={question:q,options:opts.map(t=>({id:crypto.randomUUID(),text:t,voters:[]}))};}
+    const m={id:crypto.randomUUID(),userId:u.id,text:type==='poll'?'':text,type,mediaUrl:['text','poll'].includes(type)?'':mediaUrl,fileName:String(payload?.fileName||'').slice(0,120),mime:String(payload?.mime||'').slice(0,80),anonymous:!!payload?.anonymous&&!recipientId&&!channelId,chatType:channelId?'channel':(recipientId?'private':'global'),recipientId:recipientId||null,channelId,createdAt:new Date().toISOString(),viewers:[],reactions:{},hiddenFor:[],replyTo:reply&&canSeeMessage(reply,u)?reply.id:null,pinned:false,giftId:null,poll};
     db.messages.push(m); if(db.messages.length>5000)db.messages=db.messages.slice(-5000); saveDb(); emitToViewers('message',m,viewer=>serializeMessage(m,viewer));
   });
   socket.on('view-message',id=>{const m=db.messages.find(x=>x.id===id);if(!m||!canSeeMessage(m,u)||m.userId===u.id)return;m.viewers||=[];if(m.viewers.includes(u.id))return;m.viewers.push(u.id);saveDb();emitToViewers('message-views',m,{id:m.id,views:m.viewers.length});});
   socket.on('react-message',payload=>{const id=payload?.id,emoji=payload?.emoji;const allowed=['❤','👍','😂','💋','👀','🤔','🤢','😎','🤡','💩'];if(!allowed.includes(emoji))return;const m=db.messages.find(x=>x.id===id);if(!m||!canSeeMessage(m,u))return;m.reactions||={};m.reactions[emoji]||=[];const i=m.reactions[emoji].indexOf(u.id);if(i>=0)m.reactions[emoji].splice(i,1);else m.reactions[emoji].push(u.id);saveDb();emitToViewers('message-reactions',m,viewer=>({id:m.id,reactions:serializeMessage(m,viewer).reactions}));});
   socket.on('delete-message-self',id=>{const m=db.messages.find(x=>x.id===id);if(!m||!canSeeMessage(m,u))return;m.hiddenFor||=[];if(!m.hiddenFor.includes(u.id))m.hiddenFor.push(u.id);saveDb();socket.emit('message-hidden',id);});
   socket.on('delete-message-all',id=>{const i=db.messages.findIndex(x=>x.id===id);if(i<0)return;if(!u.isAdmin&&db.messages[i].userId!==u.id)return;db.messages.splice(i,1);saveDb();io.emit('message-deleted',id);});
-  socket.on('pin-message',id=>{if(!u.isAdmin)return;const m=db.messages.find(x=>x.id===id);if(!m||!canSeeMessage(m,u))return;const next=!m.pinned;if(next)for(const other of db.messages)if(other.id!==m.id&&sameConversation(m,other))other.pinned=false;m.pinned=next;saveDb();emitToViewers('pin-changed',m,{id:m.id,pinned:m.pinned});});
+  socket.on('pin-message',id=>{if(!u.isAdmin&&!isPremium(u))return;const m=db.messages.find(x=>x.id===id);if(!m||!canSeeMessage(m,u))return;const next=!m.pinned;if(next)for(const other of db.messages)if(other.id!==m.id&&sameConversation(m,other))other.pinned=false;m.pinned=next;saveDb();emitToViewers('pin-changed',m,{id:m.id,pinned:m.pinned});});
+  socket.on('vote-poll',payload=>{const m=db.messages.find(x=>x.id===payload?.id);if(!m?.poll||!canSeeMessage(m,u))return;const opt=m.poll.options.find(o=>o.id===payload?.optionId);if(!opt)return;for(const o of m.poll.options)o.voters=(o.voters||[]).filter(id=>id!==u.id);opt.voters.push(u.id);saveDb();emitToViewers('poll-updated',m,viewer=>({id:m.id,poll:serializeMessage(m,viewer).poll}));});
   socket.on('disconnect',()=>{const count=Math.max(0,(onlineSockets.get(u.id)||1)-1);if(count)onlineSockets.set(u.id,count);else{onlineSockets.delete(u.id);u.online=false;saveDb();io.emit('presence',{id:u.id,online:false})}});
 });
 
