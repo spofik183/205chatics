@@ -60,7 +60,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 function defaultDb(){
   return {
     users: [], messages: [], gifts: [], purchases: [], supportThreads: {},
-    giftCatalog: [], maintenanceUntil: null,
+    giftCatalog: [], referrals: [], maintenanceUntil: null,
     channel: { name:'205chat', avatarUrl:'', description:'Общий чат 205chating', verified:true }
   };
 }
@@ -69,6 +69,8 @@ function loadDb(){
     const parsed = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
     parsed.users ||= []; parsed.messages ||= []; parsed.gifts ||= []; parsed.purchases ||= []; parsed.supportThreads ||= {};
     parsed.giftCatalog ||= [];
+    parsed.referrals ||= [];
+    parsed.referrals = parsed.referrals.map(r=>({id:r.id||crypto.randomUUID(),code:String(r.code||'').trim(),berries:Math.max(1,Math.trunc(Number(r.berries)||1)),createdAt:r.createdAt||new Date().toISOString(),createdBy:r.createdBy||null,claimedUserIds:Array.isArray(r.claimedUserIds)?r.claimedUserIds:[]})).filter(r=>r.code);
     parsed.maintenanceUntil ||= null;
     // v10: базовых подарков больше нет. Рынок полностью создаёт администратор.
     parsed.giftCatalog = parsed.giftCatalog.filter(g=>!g.seed).map(g=>({id:g.id||crypto.randomUUID(),key:g.key||g.id||crypto.randomUUID(),name:String(g.name||'Подарок'),price:Math.max(1,Math.trunc(Number(g.price)||1)),image:g.image||'',type:g.type==='nft'?'nft':'gift',totalSupply:Math.max(1,Math.trunc(Number(g.totalSupply)||1)),remaining:Math.max(0,Math.trunc(Number(g.remaining ?? g.totalSupply)||0)),createdAt:g.createdAt||new Date().toISOString(),releaseAt:g.releaseAt||null,createdBy:g.createdBy||null}));
@@ -222,10 +224,14 @@ app.post('/api/upload',auth,writeRateLimit,upload.single('file'),(req,res)=>{
     else if(['.ogg','.opus','.webm','.m4a','.mp3','.wav'].includes(ext)) mime=ext==='.webm'?'audio/webm':`audio/${ext.slice(1)}`;
   }
   let type=mime.startsWith('image/')?'image':mime.startsWith('video/')?'video':mime.startsWith('audio/')?'audio':'file';
-  // square-*.webm/mp4 всегда считается видео, voice-* — аудио.
+  // Для записей MediaRecorder клиент явно передаёт kind: это надёжнее MIME на Safari/Android WebView.
+  const forcedKind=String(req.body?.kind||'').toLowerCase();
+  if(['image','video','audio'].includes(forcedKind)) type=forcedKind;
   const original=String(req.file.originalname||'').toLowerCase();
   if(original.startsWith('square-')||original.startsWith('triangle-')) type='video';
   if(original.startsWith('voice-')) type='audio';
+  if(type==='video'&&!mime.startsWith('video/')) mime=ext==='.mp4'||ext==='.mov'||ext==='.m4v'?'video/mp4':'video/webm';
+  if(type==='audio'&&!mime.startsWith('audio/')) mime=ext==='.mp4'||ext==='.m4a'?'audio/mp4':'audio/webm';
   if(type==='file'){fs.unlink(req.file.path,()=>{});return res.status(400).json({error:'Можно отправлять только фото, видео и голосовые сообщения'})}
   res.json({url:`/uploads/${req.file.filename}`,type,mime,name:String(req.file.originalname||'').slice(0,120),size:req.file.size});
 });
@@ -386,12 +392,26 @@ app.patch('/api/admin/gifts/:id',auth,adminOnly,(req,res)=>{
   const g=db.giftCatalog.find(x=>x.id===req.params.id||x.key===req.params.id);if(!g)return res.status(404).json({error:'Подарок не найден'});
   if(Object.prototype.hasOwnProperty.call(req.body,'price')){const v=Math.trunc(Number(req.body.price));if(!Number.isFinite(v)||v<1)return res.status(400).json({error:'Некорректная цена'});g.price=v}
   if(Object.prototype.hasOwnProperty.call(req.body,'remaining')){const v=Math.trunc(Number(req.body.remaining));if(!Number.isFinite(v)||v<0)return res.status(400).json({error:'Некорректное количество'});g.remaining=v;g.totalSupply=Math.max(g.totalSupply||0,v)}
+  if(Object.prototype.hasOwnProperty.call(req.body,'addQuantity')){if(g.type!=='nft')return res.status(400).json({error:'Добавлять выпуск можно только NFT'});const v=Math.trunc(Number(req.body.addQuantity));if(!Number.isFinite(v)||v<1)return res.status(400).json({error:'Укажи количество NFT больше 0'});g.totalSupply=Math.max(0,Number(g.totalSupply)||0)+v;g.remaining=Math.max(0,Number(g.remaining)||0)+v;}
   if(Object.prototype.hasOwnProperty.call(req.body,'releaseAt')){const raw=String(req.body.releaseAt||'').trim();if(!raw)g.releaseAt=null;else{const d=new Date(raw);if(Number.isNaN(d.getTime()))return res.status(400).json({error:'Некорректная дата выхода'});g.releaseAt=d.toISOString();}}
   saveDb();res.json({item:g});
 });
 app.delete('/api/admin/gifts/:id',auth,adminOnly,(req,res)=>{
   const i=db.giftCatalog.findIndex(x=>x.id===req.params.id||x.key===req.params.id);if(i<0)return res.status(404).json({error:'Подарок не найден'});
   db.giftCatalog.splice(i,1);saveDb();res.json({ok:true});
+});
+
+// Referral links
+app.get('/api/admin/referrals',auth,adminOnly,(_req,res)=>res.json({referrals:db.referrals.slice().sort((a,b)=>String(b.createdAt).localeCompare(String(a.createdAt))).map(r=>({...r,claims:r.claimedUserIds.length}))}));
+app.post('/api/admin/referrals',auth,adminOnly,(req,res)=>{
+  const berries=Math.trunc(Number(req.body.berries));if(!Number.isFinite(berries)||berries<1)return res.status(400).json({error:'Количество клубничек должно быть больше 0'});
+  let code='';do{code=crypto.randomBytes(5).toString('base64url')}while(db.referrals.some(r=>r.code===code));
+  const referral={id:crypto.randomUUID(),code,berries,createdAt:new Date().toISOString(),createdBy:req.user.id,claimedUserIds:[]};db.referrals.push(referral);saveDb();res.json({referral:{...referral,claims:0}});
+});
+app.post('/api/referrals/claim',auth,(req,res)=>{
+  const code=String(req.body.code||'').trim();const r=db.referrals.find(x=>x.code===code);if(!r)return res.status(404).json({error:'Реферальная ссылка недействительна'});
+  r.claimedUserIds||=[];if(r.claimedUserIds.includes(req.user.id))return res.json({ok:true,alreadyClaimed:true,balance:req.user.strawberries||0});
+  req.user.strawberries=Math.max(0,Number(req.user.strawberries)||0)+r.berries;r.claimedUserIds.push(req.user.id);saveDb();io.emit('user-updated',cleanUser(req.user));res.json({ok:true,berries:r.berries,balance:req.user.strawberries});
 });
 
 // Strawberry purchases: manual payment verification by admin

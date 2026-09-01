@@ -30,6 +30,7 @@ let supportUser = null;
 let supportVisible = false;
 let giftCatalog = [];
 let selectedGiftKey = null;
+let marketKind = 'gift';
 let myGifts = [];
 let myPurchases = [];
 
@@ -250,7 +251,7 @@ function setReply(m){ replyTo={id:m.id,text:compactText(m),sender:m.sender?.user
 function clearReply(){ replyTo=null; $('#replyBar').classList.add('hidden'); $('#replyText').textContent=''; }
 $('#cancelReply').onclick=clearReply;
 
-async function uploadFile(file){ const fd=new FormData(); fd.append('file',file,file.name||'recording.webm'); return api('/api/upload',{method:'POST',body:fd}); }
+async function uploadFile(file,kind=''){ const fd=new FormData(); fd.append('file',file,file.name||'recording.webm'); if(kind)fd.append('kind',kind); return api('/api/upload',{method:'POST',body:fd}); }
 function clearPendingMedia(){ pendingMedia=null; $('#uploadPreview').classList.add('hidden'); $('#uploadPreview').innerHTML=''; $('#mediaInput').value=''; }
 function showPendingMedia(data,file){
   pendingMedia=data; const p=$('#uploadPreview'); let visual='';
@@ -603,18 +604,24 @@ let marketFilter='newest';
 async function loadGiftCatalog(){try{const d=await api('/api/gifts/catalog');giftCatalog=d.catalog||[];renderGiftCatalog()}catch(e){console.error(e)}}
 function renderGiftCatalog(){
   const box=$('#giftCatalog');if(!box)return;box.innerHTML='';
-  const now=Date.now();let list=[...giftCatalog];
+  const now=Date.now();let list=[...giftCatalog].filter(g=>g.type===marketKind);
   if(marketFilter==='upcoming')list=list.filter(g=>g.releaseAt&&new Date(g.releaseAt).getTime()>now);
-  else if(marketFilter==='nft')list=list.filter(g=>g.type==='nft'&&(!g.releaseAt||new Date(g.releaseAt).getTime()<=now));
   else if(marketFilter!=='all')list=list.filter(g=>!g.releaseAt||new Date(g.releaseAt).getTime()<=now);
   if(marketFilter==='price_desc')list.sort((a,b)=>b.price-a.price);
   else if(marketFilter==='price_asc')list.sort((a,b)=>a.price-b.price);
   else list.sort((a,b)=>String(b.createdAt).localeCompare(String(a.createdAt)));
-  if(!list.length){box.innerHTML='<div class="empty-state">На рынке пока ничего нет</div>';return}
-  list.forEach(g=>{const upcoming=!!g.releaseAt&&new Date(g.releaseAt).getTime()>now;const b=document.createElement('button');b.className='market-gift-card'+(selectedGiftKey===g.key?' selected':'')+(g.soldOut?' soldout':'')+(upcoming?' upcoming':'');const stock=g.remaining;b.innerHTML=`<div class="market-gift-image"><img src="${escapeHtml(g.image)}"><span class="market-type ${g.type==='nft'?'nft':''}">${g.type==='nft'?'NFT':'GIFT'}</span></div><div class="market-gift-copy"><b>${escapeHtml(g.name)}</b><span>${g.price}🍓</span><small>${upcoming?'Выйдет: '+new Date(g.releaseAt).toLocaleString():'На рынке: '+stock}</small></div>`;b.disabled=!!g.soldOut||upcoming;b.onclick=()=>{selectedGiftKey=g.key;renderGiftCatalog();renderGiftCompose()};box.appendChild(b)});
+  if(!list.length){box.innerHTML=`<div class="empty-state market-empty">${marketKind==='nft'?'NFT пока нет':'Подарков пока нет'}</div>`;return}
+  list.forEach(g=>{
+    const upcoming=!!g.releaseAt&&new Date(g.releaseAt).getTime()>now;
+    const sold=Math.max(0,(Number(g.totalSupply)||0)-(Number(g.remaining)||0));
+    const b=document.createElement('button');
+    b.className='market-gift-card '+(g.type==='nft'?'nft-card ':'')+(selectedGiftKey===g.key?'selected ':'')+(g.soldOut?'soldout ':'')+(upcoming?'upcoming ':'');
+    b.innerHTML=`<div class="market-gift-image"><img src="${escapeHtml(g.image)}" alt="${escapeHtml(g.name)}">${g.type==='nft'?'<span class="market-type nft">NFT</span>':''}</div><div class="market-gift-copy"><b>${escapeHtml(g.name)}</b><div class="market-card-bottom"><span>${g.price}🍓</span>${g.type==='nft'?`<small>${sold}/${g.totalSupply}<br>продано/выпущено</small>`:(upcoming?`<small>Выйдет: ${new Date(g.releaseAt).toLocaleDateString()}</small>`:'')}</div></div>`;
+    b.disabled=!!g.soldOut||upcoming;b.onclick=()=>{selectedGiftKey=g.key;renderGiftCatalog();renderGiftCompose()};box.appendChild(b)
+  });
 }
 function renderGiftCompose(){const g=giftCatalog.find(x=>x.key===selectedGiftKey);const area=$('#giftCompose');if(!g){area.classList.add('hidden');return}area.classList.remove('hidden');$('#selectedGiftPreview').innerHTML=`<img src="${escapeHtml(g.image)}"><div><b>${escapeHtml(g.name)}</b><span>${g.price}🍓 · ${g.type==='nft'?'NFT':'подарок'}</span><small>Осталось: ${g.remaining}</small></div>`;}
-async function openGiftMarket(){if(!currentPeer||supportMode)return;selectedGiftKey=null;$('#giftLetter').value='';$('#giftLetterCount').textContent='0';$('#marketBalance').textContent=`${me.strawberries||0}🍓`;$('#giftMarketPeer').textContent=currentPeerUser?`Подарок для @${currentPeerUser.username}`:'Подарок другу';marketFilter=$('#marketSort')?.value||'newest';await loadGiftCatalog();renderGiftCompose();$('#giftMarketPage').classList.remove('hidden')}
+async function openGiftMarket(){if(!currentPeer||supportMode)return;selectedGiftKey=null;marketKind='gift';$$('[data-market-kind]').forEach(b=>b.classList.toggle('active',b.dataset.marketKind==='gift'));$('#giftLetter').value='';$('#giftLetterCount').textContent='0';$('#marketBalance').textContent=`${me.strawberries||0}🍓`;$('#giftMarketPeer').textContent=currentPeerUser?`Подарок для @${currentPeerUser.username}`:'Подарок другу';marketFilter=$('#marketSort')?.value||'newest';await loadGiftCatalog();renderGiftCompose();$('#giftMarketPage').classList.remove('hidden')}
 $('#marketSort').onchange=e=>{marketFilter=e.target.value;selectedGiftKey=null;renderGiftCompose();renderGiftCatalog();};
 $('#giftBtn').onclick=openGiftMarket;
 $('#closeGiftMarket').onclick=()=>$('#giftMarketPage').classList.add('hidden');
@@ -623,12 +630,12 @@ document.querySelectorAll('[data-market-filter]').forEach(b=>b.onclick=()=>{mark
 $('#giftLetter').oninput=()=>$('#giftLetterCount').textContent=String($('#giftLetter').value.length);
 $('#sendGift').onclick=async()=>{if(!selectedGiftKey||!currentPeer)return;try{const d=await api('/api/gifts/send',{method:'POST',body:JSON.stringify({recipientId:currentPeer,giftKey:selectedGiftKey,letter:$('#giftLetter').value})});me.strawberries=d.balance;syncMeUI();$('#giftMarketPage').classList.add('hidden');toast('Подарок отправлен')}catch(err){toast(err.message)}};
 function renderMyGifts(){
-  const box=$('#myGifts');if(!box)return;box.innerHTML='';if(!myGifts.length){box.innerHTML='<span class="gift-empty">Пока нет подарков</span>';return}myGifts.forEach(g=>{const b=document.createElement('button');b.className='profile-gift'+(me?.featuredGift?.id===g.id?' featured':'');b.innerHTML=`<img src="${escapeHtml(g.image)}"><span>${escapeHtml(g.name)}</span>${g.type==='nft'?`<small>NFT #${g.serial||'—'}</small>`:''}`;b.title=me?.featuredGift?.id===g.id?'Открепить подарок':'Закрепить возле профиля';b.onclick=()=>featureGift(g.id);box.appendChild(b)})
+  const box=$('#myGifts');if(!box)return;box.innerHTML='';if(!myGifts.length){box.innerHTML='<span class="gift-empty">Пока нет подарков</span>';return}myGifts.forEach(g=>{const b=document.createElement('button');b.className='profile-gift '+(g.type==='nft'?'nft-profile-card ':'')+(me?.featuredGift?.id===g.id?'featured':'');b.innerHTML=`<img src="${escapeHtml(g.image)}"><span>${escapeHtml(g.name)}</span><strong class="profile-gift-price">${g.price}🍓</strong>${g.type==='nft'?`<small>NFT #${g.serial||'—'}</small>`:''}`;b.title=me?.featuredGift?.id===g.id?'Открепить подарок':'Закрепить возле профиля';b.onclick=()=>featureGift(g.id);box.appendChild(b)})
 }
 async function loadMyGifts(){try{const d=await api('/api/gifts/mine');myGifts=d.gifts||[];me.strawberries=d.balance;renderMyGifts();syncMeUI()}catch(e){console.error(e)}}
 async function featureGift(id){try{const d=await api('/api/gifts/feature',{method:'POST',body:JSON.stringify({giftId:me?.featuredGift?.id===id?null:id})});me=d.user;syncMeUI();renderMyGifts();toast(me.featuredGift?'Подарок закреплён возле профиля':'Подарок откреплён')}catch(err){toast(err.message)}}
 async function openUserProfile(user){
-  try{const d=user?.id?await api('/api/users/'+encodeURIComponent(user.id)):{user:me,gifts:myGifts};const u=d.user;setAvatar($('#viewUserAvatar'),u);$('#viewUserName').innerHTML='@'+escapeHtml(u.username)+badge(u);$('#viewUserPhone').textContent=u.phone||'Номер скрыт';$('#viewUserBio').textContent=u.bio||'—';$('#writeUserBtn').classList.toggle('hidden',u.id===me.id);$('#publicContactActions').classList.toggle('hidden',u.id===me.id);$('#writeUserBtn').onclick=()=>{closeModal('userProfileModal');openPeer(u)};$('#clearPrivateChat').onclick=async()=>{if(!confirm('Очистить всю личную переписку с @'+u.username+'?'))return;try{await api('/api/private/'+encodeURIComponent(u.id)+'/messages',{method:'DELETE'});closeModal('userProfileModal');if(currentPeer===u.id)await loadMessages();toast('Чат очищен')}catch(e){toast(e.message)}};$('#deleteContact').onclick=async()=>{if(!confirm('Удалить @'+u.username+' из контактов?'))return;try{await api('/api/contacts/'+encodeURIComponent(u.id),{method:'DELETE'});contacts=contacts.filter(x=>x.id!==u.id);if(currentPeer===u.id){currentPeer=null;currentPeerUser=null;await loadMessages()}renderContacts();closeModal('userProfileModal');toast('Контакт удалён')}catch(e){toast(e.message)}};const box=$('#viewUserGifts');box.innerHTML='';(d.gifts||[]).forEach(g=>{const el=document.createElement('div');el.className='profile-gift readonly gift-with-sender'+(u.featuredGift?.id===g.id?' featured':'');const sav=document.createElement('button');sav.className='gift-card-sender avatar';setAvatar(sav,g.sender||{username:'?'});sav.title='@'+(g.sender?.username||'user');sav.onclick=e=>{e.stopPropagation();if(g.sender?.id)openUserProfile(g.sender)};el.innerHTML=`<img src="${escapeHtml(g.image)}"><span>${escapeHtml(g.name)}</span>${g.type==='nft'?`<small>NFT #${g.serial||'—'}</small>`:''}`;el.prepend(sav);el.title=g.letter?`“${g.letter}” — @${g.sender?.username||'user'}`:`От @${g.sender?.username||'user'}`;box.appendChild(el)});if(!(d.gifts||[]).length)box.innerHTML='<span class="gift-empty">Подарков пока нет</span>';setPublicProfileTab('main');openModal('userProfileModal')}catch(err){toast(err.message)}
+  try{const d=user?.id?await api('/api/users/'+encodeURIComponent(user.id)):{user:me,gifts:myGifts};const u=d.user;setAvatar($('#viewUserAvatar'),u);$('#viewUserName').innerHTML='@'+escapeHtml(u.username)+badge(u);$('#viewUserPhone').textContent=u.phone||'Номер скрыт';$('#viewUserBio').textContent=u.bio||'—';$('#writeUserBtn').classList.toggle('hidden',u.id===me.id);$('#publicContactActions').classList.toggle('hidden',u.id===me.id);$('#writeUserBtn').onclick=()=>{closeModal('userProfileModal');openPeer(u)};$('#clearPrivateChat').onclick=async()=>{if(!confirm('Очистить всю личную переписку с @'+u.username+'?'))return;try{await api('/api/private/'+encodeURIComponent(u.id)+'/messages',{method:'DELETE'});closeModal('userProfileModal');if(currentPeer===u.id)await loadMessages();toast('Чат очищен')}catch(e){toast(e.message)}};$('#deleteContact').onclick=async()=>{if(!confirm('Удалить @'+u.username+' из контактов?'))return;try{await api('/api/contacts/'+encodeURIComponent(u.id),{method:'DELETE'});contacts=contacts.filter(x=>x.id!==u.id);if(currentPeer===u.id){currentPeer=null;currentPeerUser=null;await loadMessages()}renderContacts();closeModal('userProfileModal');toast('Контакт удалён')}catch(e){toast(e.message)}};const box=$('#viewUserGifts');box.innerHTML='';(d.gifts||[]).forEach(g=>{const el=document.createElement('div');el.className='profile-gift readonly gift-with-sender '+(g.type==='nft'?'nft-profile-card ':'')+(u.featuredGift?.id===g.id?'featured':'');const sav=document.createElement('button');sav.className='gift-card-sender avatar';setAvatar(sav,g.sender||{username:'?'});sav.title='@'+(g.sender?.username||'user');sav.onclick=e=>{e.stopPropagation();if(g.sender?.id)openUserProfile(g.sender)};el.innerHTML=`<img src="${escapeHtml(g.image)}"><span>${escapeHtml(g.name)}</span><strong class="profile-gift-price">${g.price}🍓</strong>${g.type==='nft'?`<small>NFT #${g.serial||'—'}</small>`:''}`;el.prepend(sav);el.title=g.letter?`“${g.letter}” — @${g.sender?.username||'user'}`:`От @${g.sender?.username||'user'}`;box.appendChild(el)});if(!(d.gifts||[]).length)box.innerHTML='<span class="gift-empty">Подарков пока нет</span>';setPublicProfileTab('main');openModal('userProfileModal')}catch(err){toast(err.message)}
 }
 function setProfileTab(tab){document.querySelectorAll('[data-profile-tab]').forEach(b=>b.classList.toggle('active',b.dataset.profileTab===tab));$('#profileMainTab').classList.toggle('hidden',tab!=='main');$('#profileGiftsTab').classList.toggle('hidden',tab!=='gifts');document.querySelector('#profileModal .account-section')?.classList.toggle('hidden',tab!=='main');if(tab==='gifts')loadMyGifts()}
 document.querySelectorAll('[data-profile-tab]').forEach(b=>b.onclick=()=>setProfileTab(b.dataset.profileTab));
@@ -994,7 +1001,7 @@ finishRecording=async function(){
     toast('Отправка записи…');
     const blob=new Blob(chunks,{type:mime});if(!blob.size)throw new Error('Запись получилась пустой — попробуй ещё раз');
     const ext=mime.includes('mp4')?'mp4':'webm';const file=new File([blob],`${wasMode==='video'?'triangle':'voice'}-${Date.now()}.${ext}`,{type:mime});
-    const up=await uploadFile(file);if(!socket?.connected)throw new Error('Нет соединения с сервером');
+    const up=await uploadFile(file,wasMode==='video'?'video':'audio');if(!socket?.connected)throw new Error('Нет соединения с сервером');
     socket.emit('send-message',{type:wasMode==='video'?'video':'audio',mediaUrl:up.url,fileName:up.name,mime:up.mime||mime,recipientId:currentPeer||null,replyTo:replyTo?.id||null});
     clearReply();toast(wasMode==='video'?'Видео-треугольник отправлен':'Голосовое отправлено');
   }catch(err){console.error(err);toast(err.message||'Не удалось отправить запись')}
@@ -1032,3 +1039,45 @@ $('#adminGiftForm').onsubmit=async e=>{
   const rv=$('#adminGiftReleaseAt').value;if(rv)fd.append('releaseAt',new Date(rv).toISOString());
   try{setBusy(btn,true,'Создаём…');await api('/api/admin/gifts',{method:'POST',body:fd});e.currentTarget.reset();toast('Подарок создан');await loadAdminMarket();await loadGiftCatalog()}catch(err){console.error(err);toast(err.message)}finally{setBusy(btn,false)}
 };
+
+
+// ========================= 205chating 0.1.5v market/referral hotfix =========================
+// Market top switch: gifts and NFT are separate views.
+$$('[data-market-kind]').forEach(b=>b.onclick=()=>{
+  marketKind=b.dataset.marketKind==='nft'?'nft':'gift';selectedGiftKey=null;
+  $$('[data-market-kind]').forEach(x=>x.classList.toggle('active',x===b));
+  $('#giftCompose')?.classList.add('hidden');renderGiftCatalog();
+});
+$('#sidebarAddFab').onclick=()=>openModal('contactModal');
+
+// Referral links are remembered before login/registration and claimed once authenticated.
+(function captureReferral(){
+  try{const url=new URL(location.href),code=url.searchParams.get('ref');if(code){localStorage.setItem('205ref',code);url.searchParams.delete('ref');history.replaceState({},'',url.pathname+url.search+url.hash)}}catch{}
+})();
+async function claimPendingReferral(){
+  const code=localStorage.getItem('205ref');if(!code||!token)return;
+  try{const d=await api('/api/referrals/claim',{method:'POST',body:JSON.stringify({code})});localStorage.removeItem('205ref');if(d.berries){me.strawberries=d.balance;syncMeUI();toast(`По реферальной ссылке начислено ${d.berries}🍓`)}}catch(err){console.warn('[referral]',err.message);localStorage.removeItem('205ref')}
+}
+const refStartAppBase=startApp;
+startApp=async function(){await refStartAppBase();if(me)await claimPendingReferral()};
+
+async function loadReferralsAdmin(){
+  if(!me?.isAdmin)return;try{const d=await api('/api/admin/referrals');const box=$('#referralList');if(!box)return;box.innerHTML='';(d.referrals||[]).slice(0,12).forEach(r=>{const row=document.createElement('div');row.className='referral-row';const link=`${location.origin}${location.pathname}?ref=${encodeURIComponent(r.code)}`;row.innerHTML=`<div><b>${r.berries}🍓</b><span>${escapeHtml(link)}</span><small>${r.claims||0} использований</small></div><button type="button" class="verify-btn">Копировать</button>`;row.querySelector('button').onclick=async()=>{try{await navigator.clipboard.writeText(link);toast('Реферальная ссылка скопирована')}catch{prompt('Скопируй ссылку:',link)}};box.appendChild(row)});if(!box.children.length)box.innerHTML='<small class="gift-empty">Реферальных ссылок пока нет</small>'}catch(e){toast(e.message)}
+}
+$('#createReferral').onclick=async()=>{const berries=Math.trunc(Number($('#referralBerries').value));if(!Number.isFinite(berries)||berries<1)return toast('Укажи награду в клубничках');try{const d=await api('/api/admin/referrals',{method:'POST',body:JSON.stringify({berries})});$('#referralBerries').value='';await loadReferralsAdmin();const link=`${location.origin}${location.pathname}?ref=${encodeURIComponent(d.referral.code)}`;try{await navigator.clipboard.writeText(link);toast('Рефералка создана и скопирована')}catch{prompt('Рефералка создана:',link)}}catch(e){toast(e.message)}};
+const refOpenAdminBase=openAdmin;
+openAdmin=async function(){await refOpenAdminBase();await loadReferralsAdmin()};
+
+// NFT circulation can be increased without recreating the item.
+const marketAdminBase=loadAdminMarket;
+loadAdminMarket=async function(){
+  if(!me?.isAdmin)return;try{const d=await api('/api/admin/gifts');const box=$('#adminMarketList');box.innerHTML='';(d.catalog||[]).forEach(g=>{const upcoming=g.releaseAt&&new Date(g.releaseAt).getTime()>Date.now();const sold=Math.max(0,(g.totalSupply||0)-(g.remaining||0));const row=document.createElement('div');row.className='admin-market-row'+(g.type==='nft'?' nft-admin-row':'');row.innerHTML=`<img src="${escapeHtml(g.image)}"><div><b>${escapeHtml(g.name)} <em>${g.type==='nft'?'NFT':'подарок'}</em></b><span>${g.price}🍓 · ${g.type==='nft'?`${sold}/${g.totalSupply} продано/выпущено`:`осталось ${g.remaining}/${g.totalSupply}`}</span><small>${upcoming?'Выход: '+new Date(g.releaseAt).toLocaleString():(g.releaseAt?'Уже на рынке':'Вышел сразу')}</small></div><div class="admin-market-actions">${g.type==='nft'?'<div class="nft-add-supply"><input type="number" min="1" step="1" placeholder="+ NFT"><button class="verify-btn add-nft-supply">Добавить</button></div>':''}<button class="verify-btn schedule-market">Дата</button><button class="verify-btn danger-market">Удалить</button></div>`;
+    row.querySelector('.schedule-market').onclick=async()=>{const current=g.releaseAt?(()=>{const d=new Date(g.releaseAt),z=n=>String(n).padStart(2,'0');return `${d.getFullYear()}-${z(d.getMonth()+1)}-${z(d.getDate())}T${z(d.getHours())}:${z(d.getMinutes())}`})():'';const v=prompt('Дата выхода YYYY-MM-DDTHH:MM. Пусто = выпустить сразу:',current);if(v===null)return;try{await api('/api/admin/gifts/'+encodeURIComponent(g.id),{method:'PATCH',body:JSON.stringify({releaseAt:v?new Date(v).toISOString():''})});await loadAdminMarket();await loadGiftCatalog()}catch(e){toast(e.message)}};
+    row.querySelector('.danger-market').onclick=async()=>{if(!confirm('Удалить позицию с рынка?'))return;try{await api('/api/admin/gifts/'+encodeURIComponent(g.id),{method:'DELETE'});await loadAdminMarket();await loadGiftCatalog()}catch(e){toast(e.message)}};
+    const add=row.querySelector('.add-nft-supply');if(add)add.onclick=async()=>{const input=row.querySelector('.nft-add-supply input'),qty=Math.trunc(Number(input.value));if(!Number.isFinite(qty)||qty<1)return toast('Укажи сколько NFT добавить');try{await api('/api/admin/gifts/'+encodeURIComponent(g.id),{method:'PATCH',body:JSON.stringify({addQuantity:qty})});toast(`Добавлено ${qty} NFT`);await loadAdminMarket();await loadGiftCatalog()}catch(e){toast(e.message)}};
+    box.appendChild(row)});if(!box.children.length)box.innerHTML='<span class="gift-empty">Подарков пока нет. Создай первый выше.</span>'}catch(e){toast(e.message)}
+};
+
+setTimeout(()=>{if(token&&localStorage.getItem('205ref'))claimPendingReferral()},700);
+
+$('#adminBtn').onclick=openAdmin;$('#refreshMarketAdmin').onclick=loadAdminMarket;

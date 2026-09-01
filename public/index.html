@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#101827">
   <meta name="description" content="205chating — быстрый мессенджер с личными чатами, подарками и 205chat.">
   <title>205chating</title>
-  <link rel="stylesheet" href="style.css?v=015">
+  <link rel="stylesheet" href="style.css?v=0152">
 </head>
 <body>
 <div id="toast" class="toast"></div>
@@ -66,6 +66,7 @@
       <button id="addContactBtn" class="icon-btn mini" title="Добавить контакт">＋</button>
     </div>
     <div id="contactsList" class="contacts-list"></div>
+    <button id="sidebarAddFab" class="sidebar-add-fab" type="button" title="Добавить контакт" aria-label="Добавить контакт">＋</button>
 
     <div class="side-bottom">
       <button id="adminBtn" class="plain-button hidden">Admin</button>
@@ -133,7 +134,7 @@
 
 <section id="giftMarketPage" class="settings-page hidden sub-page gift-market-page">
   <div class="settings-page-head"><button id="closeGiftMarket" class="icon-btn">←</button><div><h2>Рынок подарков</h2><p id="giftMarketPeer">Подарок другу</p></div><div class="market-balance" id="marketBalance">0🍓</div></div>
-  <div class="settings-page-body gift-market-body"><div class="market-filter market-sort-row"><select id="marketSort"><option value="newest">Сначала новые</option><option value="price_desc">От дорогого к дешёвому</option><option value="price_asc">От дешёвого к дорогому</option><option value="upcoming">Ещё не вышли</option><option value="nft">NFT</option><option value="all">Все</option></select></div><div id="giftCatalog" class="market-grid"></div><div id="giftCompose" class="market-compose hidden"><button id="closeGiftCompose" class="market-compose-close">×</button><div id="selectedGiftPreview" class="selected-gift-preview"></div><label><span>Письмо <small><span id="giftLetterCount">0</span>/50</small></span><textarea id="giftLetter" maxlength="50" rows="3" placeholder="Напиши несколько слов…"></textarea></label><button id="sendGift" class="primary wide">Подарить</button></div></div>
+  <div class="settings-page-body gift-market-body"><div class="market-kind-toggle" role="tablist"><button class="active" data-market-kind="gift" type="button">Подарки</button><button data-market-kind="nft" type="button">NFT</button></div><div class="market-filter market-sort-row"><select id="marketSort"><option value="newest">Сначала новые</option><option value="price_desc">От дорогого к дешёвому</option><option value="price_asc">От дешёвого к дорогому</option><option value="upcoming">Ещё не вышли</option><option value="all">Все</option></select></div><div id="giftCatalog" class="market-grid"></div><div id="giftCompose" class="market-compose hidden"><button id="closeGiftCompose" class="market-compose-close">×</button><div id="selectedGiftPreview" class="selected-gift-preview"></div><label><span>Письмо <small><span id="giftLetterCount">0</span>/50</small></span><textarea id="giftLetter" maxlength="50" rows="3" placeholder="Напиши несколько слов…"></textarea></label><button id="sendGift" class="primary wide">Подарить</button></div></div>
 </section>
 
 <div id="profileModal" class="modal hidden"><div class="modal-card profile-card">
@@ -179,6 +180,7 @@
     <div class="notice">Пароли не отображаются: сервер хранит только защищённые bcrypt-хеши.</div>
     <div class="admin-actions"><button id="adminChannelBtn" class="secondary">205chat: настройки канала</button><button id="adminSupportBtn" class="secondary">Поддержка</button><button id="adminAuditBtn" class="secondary">Контакты</button><button id="refreshAdminBtn" class="secondary">Обновить список</button></div>
     <div class="maintenance-admin"><div><b>Технический перерыв</b><span>На время перерыва весь интерфейс будет закрыт экраном обслуживания.</span></div><div class="maintenance-admin-controls"><input id="maintenanceMinutes" type="number" min="1" step="1" placeholder="Минуты"><button id="startMaintenance" class="danger-button">Уйти на технический перерыв</button></div></div>
+    <div class="referral-admin"><div><b>Реферальная ссылка</b><span>Создай ссылку и укажи награду тому, кто зайдёт по ней.</span></div><div class="referral-admin-controls"><input id="referralBerries" type="number" min="1" step="1" placeholder="Награда 🍓"><button id="createReferral" class="small-primary" type="button">Создать рефералку</button></div><div id="referralList" class="referral-list"></div></div>
     <div class="admin-user-search"><span>⌕</span><input id="adminUserSearch" placeholder="Поиск по @username или номеру"></div>
     <div class="table-wrap"><table><thead><tr><th>Пользователь</th><th>Телефон</th><th>Статус</th><th>Галочка</th><th>Роль</th><th>🍓 Баланс / выдать</th><th>Аккаунт</th></tr></thead><tbody id="usersTable"></tbody></table></div>
     <div class="admin-purchases"><div class="section-title"><b>Покупки клубничек</b><button id="refreshPurchases" class="text-btn">Обновить</button></div><div id="purchaseList" class="purchase-list"></div></div>
@@ -197,6 +199,6 @@
 
 <div id="maintenanceOverlay" class="maintenance-overlay hidden"><div class="maintenance-copy"><h1>технический перерыв🔌</h1><p>скоро все заработает</p></div></div>
 <script src="/socket.io/socket.io.js"></script>
-<script src="app.js?v=015"></script>
+<script src="app.js?v=0152"></script>
 </body>
 </html>
