@@ -856,3 +856,179 @@ document.addEventListener('DOMContentLoaded',()=>{if(!token)finishStartup()});
 const startupWatch=new MutationObserver(()=>{if(!$('#app')?.classList.contains('hidden')||!$('#auth')?.classList.contains('hidden'))finishStartup()});
 startupWatch.observe(document.body,{subtree:true,attributes:true,attributeFilter:['class']});
 setTimeout(finishStartup,2600);
+
+// ========================= 205chating 0.1.5v =========================
+// Remove the old private-chat streak UI/mechanic.
+renderChatStreak = function(){ const el=document.getElementById('chatStreak'); if(el)el.classList.add('hidden'); };
+refreshChatStreak = async function(){ renderChatStreak(); };
+
+// Support now lives as its own item in the side menu, directly under Settings.
+$('#sideSupport').onclick=async()=>{
+  $('#sideMenu').classList.add('hidden');
+  $('#sidebar').classList.remove('mobile-open');
+  try{
+    if(me?.isAdmin)return await openSupportInbox();
+    await api('/api/support/open',{method:'POST'});
+    supportVisible=true; renderContacts(); await openSupportUser();
+  }catch(err){toast(err.message)}
+};
+
+// Public profile action menu.
+let profileActionUser=null;
+const v015OpenUserProfileBase=openUserProfile;
+openUserProfile=async function(user){
+  let u=user;
+  try{ if(user?.id){ const d=await api('/api/users/'+encodeURIComponent(user.id)); u=d.user||user; } }catch{}
+  await v015OpenUserProfileBase(u);
+  profileActionUser=u;
+  $('#userProfileMenuBtn')?.classList.toggle('hidden',u?.id===me?.id);
+  const menu=$('#userProfileMenu');
+  menu?.classList.add('hidden');
+  const block=$('#blockUserBtn');
+  if(block){ block.textContent=u?.blockedByMe?'Разблокировать':'Заблокировать'; block.classList.toggle('is-unblock',!!u?.blockedByMe); }
+};
+$('#userProfileMenuBtn').onclick=e=>{e.stopPropagation();$('#userProfileMenu').classList.toggle('hidden')};
+document.addEventListener('click',e=>{if(!e.target.closest('#userProfileMenu')&&!e.target.closest('#userProfileMenuBtn'))$('#userProfileMenu')?.classList.add('hidden')});
+$('#shareContactBtn').onclick=async()=>{
+  const u=profileActionUser;if(!u)return;
+  const text=`@${u.username}${u.phone?`\n${u.phone}`:''}`;
+  try{
+    if(navigator.share)await navigator.share({title:`Контакт @${u.username}`,text});
+    else if(navigator.clipboard?.writeText){await navigator.clipboard.writeText(text);toast('Контакт скопирован')}
+    else{prompt('Скопируй контакт:',text)}
+  }catch(err){if(err?.name!=='AbortError')toast('Не удалось поделиться контактом')}
+  $('#userProfileMenu').classList.add('hidden');
+};
+$('#deleteConversationBtn').onclick=async()=>{
+  const u=profileActionUser;if(!u)return;
+  if(!confirm(`Удалить всю переписку с @${u.username}?`))return;
+  try{await api('/api/private/'+encodeURIComponent(u.id)+'/messages',{method:'DELETE'});$('#userProfileMenu').classList.add('hidden');if(currentPeer===u.id)await loadMessages();toast('Переписка удалена')}catch(err){toast(err.message)}
+};
+$('#blockUserBtn').onclick=async()=>{
+  const u=profileActionUser;if(!u)return;
+  const unblock=!!u.blockedByMe;
+  if(!unblock&&!confirm(`Заблокировать @${u.username}? Он не сможет писать вам, и вы не сможете писать ему.`))return;
+  try{
+    await api('/api/users/'+encodeURIComponent(u.id)+'/block',{method:unblock?'DELETE':'POST'});
+    u.blockedByMe=!unblock; profileActionUser=u;
+    $('#blockUserBtn').textContent=u.blockedByMe?'Разблокировать':'Заблокировать';
+    $('#blockUserBtn').classList.toggle('is-unblock',u.blockedByMe);
+    if(u.blockedByMe){contacts=contacts.filter(x=>x.id!==u.id);renderContacts();if(currentPeer===u.id){currentPeer=null;currentPeerUser=null;await loadMessages();updateChatHeader()}}
+    toast(u.blockedByMe?'Пользователь заблокирован':'Пользователь разблокирован');
+    $('#userProfileMenu').classList.add('hidden');
+  }catch(err){toast(err.message)}
+};
+
+// Triangle recorder: starts immediately when ▶ is pressed, uses a stable canvas stream
+// so the camera can be switched while recording without breaking MediaRecorder.
+let triangleFacing='user';
+let triangleCameraStream=null;
+let triangleCanvasStream=null;
+let triangleCanvas=null;
+let triangleDrawRAF=0;
+let triangleUsesCanvas=false;
+const v015SetRecordModeBase=setRecordMode;
+setRecordMode=function(mode){
+  v015SetRecordModeBase(mode);
+  $('#recordBtn')?.classList.toggle('triangle-mode',mode==='video');
+};
+function v015StopAllTracks(){
+  cancelAnimationFrame(triangleDrawRAF); triangleDrawRAF=0;
+  const tracks=new Set();
+  [recordStream,triangleCameraStream,triangleCanvasStream].forEach(s=>s?.getTracks?.().forEach(t=>tracks.add(t)));
+  tracks.forEach(t=>{try{t.stop()}catch{}});
+  recordStream=null; triangleCameraStream=null; triangleCanvasStream=null; triangleCanvas=null; triangleUsesCanvas=false;
+  const preview=$('#cameraPreview');if(preview)preview.srcObject=null;
+}
+stopTracks=v015StopAllTracks;
+async function v015PrepareTriangleStream(){
+  triangleCameraStream=await navigator.mediaDevices.getUserMedia({audio:true,video:{facingMode:{ideal:triangleFacing},width:{ideal:720},height:{ideal:720}}});
+  const preview=$('#cameraPreview'); preview.srcObject=triangleCameraStream; try{await preview.play()}catch{}
+  if(typeof document.createElement('canvas').captureStream!=='function'){
+    triangleUsesCanvas=false; $('#flipCamera').disabled=true; return triangleCameraStream;
+  }
+  triangleUsesCanvas=true; $('#flipCamera').disabled=false;
+  triangleCanvas=document.createElement('canvas');triangleCanvas.width=640;triangleCanvas.height=640;
+  const ctx=triangleCanvas.getContext('2d',{alpha:false});
+  const draw=()=>{
+    if(!triangleCanvas||!preview.srcObject)return;
+    try{
+      const vw=preview.videoWidth||640,vh=preview.videoHeight||640;
+      const side=Math.min(vw,vh),sx=Math.max(0,(vw-side)/2),sy=Math.max(0,(vh-side)/2);
+      ctx.drawImage(preview,sx,sy,side,side,0,0,640,640);
+    }catch{}
+    triangleDrawRAF=requestAnimationFrame(draw);
+  }; draw();
+  triangleCanvasStream=triangleCanvas.captureStream(24);
+  return new MediaStream([...triangleCanvasStream.getVideoTracks(),...triangleCameraStream.getAudioTracks()]);
+}
+startRecording=async function(){
+  if(mediaRecorder?.state==='recording')return stopRecording(true);
+  if(!navigator.mediaDevices?.getUserMedia||!window.MediaRecorder)return toast('Браузер не поддерживает запись');
+  try{
+    recordCanceled=false;recordChunks=[];
+    recordStream=recordMode==='video'?await v015PrepareTriangleStream():await navigator.mediaDevices.getUserMedia({audio:true});
+    let options={};
+    const preferred=recordMode==='video'?['video/webm;codecs=vp8,opus','video/webm','video/mp4']:['audio/webm;codecs=opus','audio/webm','audio/mp4'];
+    const chosen=preferred.find(x=>MediaRecorder.isTypeSupported?.(x));if(chosen)options.mimeType=chosen;
+    if(recordMode==='video'){options.videoBitsPerSecond=900000;options.audioBitsPerSecond=64000}else options.audioBitsPerSecond=64000;
+    mediaRecorder=new MediaRecorder(recordStream,options);
+    mediaRecorder.ondataavailable=e=>{if(e.data?.size)recordChunks.push(e.data)};
+    mediaRecorder.onerror=e=>{console.error(e);toast('Ошибка записи')};
+    mediaRecorder.onstop=finishRecording;
+    mediaRecorder.start(300);recordStarted=Date.now();recordTimer=setInterval(updateRecordClock,250);updateRecordClock();
+    $('#recordBtn').classList.add('recording');$('#recordBtn').disabled=true;
+    if(recordMode==='voice'){$('#recordLabel').textContent='Запись голосового…';$('#recordingBar').classList.remove('hidden')}
+    else{$('#videoSquareFrame')?.style.setProperty('--record-progress','0deg');$('#videoRecorder').classList.remove('hidden');document.body.classList.add('video-recording')}
+  }catch(err){console.error(err);toast('Разреши доступ к микрофону/камере');v015StopAllTracks();mediaRecorder=null;$('#recordBtn').disabled=false}
+};
+finishRecording=async function(){
+  clearInterval(recordTimer);recordTimer=null;
+  $('#recordingBar').classList.add('hidden');$('#videoRecorder').classList.add('hidden');document.body.classList.remove('video-recording');$('#recordBtn').classList.remove('recording');$('#recordBtn').disabled=false;
+  const wasMode=recordMode,chunks=[...recordChunks];
+  const rawMime=mediaRecorder?.mimeType||(wasMode==='video'?'video/webm':'audio/webm');
+  const mime=rawMime.includes('mp4')?(wasMode==='video'?'video/mp4':'audio/mp4'):(wasMode==='video'?'video/webm':'audio/webm');
+  v015StopAllTracks();mediaRecorder=null;recordChunks=[];
+  if(recordCanceled||!chunks.length){recordCanceled=false;return}
+  try{
+    toast('Отправка записи…');
+    const blob=new Blob(chunks,{type:mime});if(!blob.size)throw new Error('Запись получилась пустой — попробуй ещё раз');
+    const ext=mime.includes('mp4')?'mp4':'webm';const file=new File([blob],`${wasMode==='video'?'triangle':'voice'}-${Date.now()}.${ext}`,{type:mime});
+    const up=await uploadFile(file);if(!socket?.connected)throw new Error('Нет соединения с сервером');
+    socket.emit('send-message',{type:wasMode==='video'?'video':'audio',mediaUrl:up.url,fileName:up.name,mime:up.mime||mime,recipientId:currentPeer||null,replyTo:replyTo?.id||null});
+    clearReply();toast(wasMode==='video'?'Видео-треугольник отправлен':'Голосовое отправлено');
+  }catch(err){console.error(err);toast(err.message||'Не удалось отправить запись')}
+};
+async function flipTriangleCamera(){
+  if(recordMode!=='video'||mediaRecorder?.state!=='recording')return;
+  if(!triangleUsesCanvas)return toast('Переключение камеры не поддерживается этим браузером');
+  const next=triangleFacing==='user'?'environment':'user';
+  const btn=$('#flipCamera');btn.disabled=true;
+  try{
+    const fresh=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:next},width:{ideal:720},height:{ideal:720}},audio:false});
+    const audio=triangleCameraStream?.getAudioTracks?.()||[];
+    triangleCameraStream?.getVideoTracks?.().forEach(t=>t.stop());
+    triangleFacing=next;triangleCameraStream=new MediaStream([...fresh.getVideoTracks(),...audio]);
+    const preview=$('#cameraPreview');preview.srcObject=triangleCameraStream;try{await preview.play()}catch{}
+  }catch(err){console.error(err);toast('Не удалось переключить камеру')}finally{btn.disabled=false}
+}
+$('#flipCamera').onclick=flipTriangleCamera;
+$('#modeVideo').onclick=()=>{if(mediaRecorder?.state==='recording')return;setRecordMode('video');startRecording()};
+$('#modeVoice').onclick=()=>{if(mediaRecorder?.state==='recording')return;setRecordMode('voice')};
+setRecordMode(recordMode);
+
+// Gift creation: explicit 0.1.5 handler with clearer validation and support for image files
+// whose browser MIME type is empty/octet-stream.
+$('#adminGiftForm').onsubmit=async e=>{
+  e.preventDefault();
+  const btn=e.currentTarget.querySelector('button[type="submit"]');
+  const file=$('#adminGiftImage').files[0];
+  const name=$('#adminGiftName').value.trim();
+  const price=Number($('#adminGiftPrice').value),quantity=Number($('#adminGiftQuantity').value);
+  if(!file)return toast('Выбери изображение подарка');
+  if(name.length<2)return toast('Название — минимум 2 символа');
+  if(!Number.isFinite(price)||price<1||!Number.isFinite(quantity)||quantity<1)return toast('Проверь цену и количество');
+  const fd=new FormData();fd.append('image',file,file.name||`gift-${Date.now()}.jpg`);fd.append('name',name);fd.append('type',$('#adminGiftType').value);fd.append('price',String(Math.trunc(price)));fd.append('quantity',String(Math.trunc(quantity)));
+  const rv=$('#adminGiftReleaseAt').value;if(rv)fd.append('releaseAt',new Date(rv).toISOString());
+  try{setBusy(btn,true,'Создаём…');await api('/api/admin/gifts',{method:'POST',body:fd});e.currentTarget.reset();toast('Подарок создан');await loadAdminMarket();await loadGiftCatalog()}catch(err){console.error(err);toast(err.message)}finally{setBusy(btn,false)}
+};

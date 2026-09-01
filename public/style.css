@@ -216,3 +216,15 @@ button:disabled{opacity:.5;cursor:not-allowed!important;transform:none!important
 @keyframes startupPulse{50%{transform:scale(1.04);box-shadow:0 18px 44px color-mix(in srgb,var(--accent) 40%,transparent)}}@keyframes softDrop{from{opacity:0;transform:translate(-50%,-8px)}to{opacity:1;transform:translate(-50%,0)}}@keyframes messageIn{from{opacity:0;transform:translateY(5px) scale(.995)}to{opacity:1;transform:none}}@keyframes softFloat{50%{transform:translateY(-4px)}}
 @media(prefers-reduced-motion:reduce){*,*:before,*:after{animation-duration:.001ms!important;animation-iteration-count:1!important;scroll-behavior:auto!important;transition-duration:.001ms!important}}
 @media(max-width:760px){.connection-banner{top:max(7px,env(safe-area-inset-top));max-width:calc(100% - 20px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.startup-copy span{font-size:11px}.composer-area{padding-bottom:max(10px,env(safe-area-inset-bottom))}.messages{padding-bottom:16px}.message-menu,.reaction-picker{max-width:calc(100vw - 16px)}}
+
+/* ========================= 205chating 0.1.5v ========================= */
+.chat-streak{display:none!important}
+.record-main.triangle-mode{display:none!important}
+.video-recorder-info{display:grid!important;grid-template-columns:1fr auto 1fr;align-items:center;width:min(360px,82vw);gap:10px!important}
+.video-recorder-info>span{justify-self:center;white-space:nowrap}.video-recorder-info>#cancelVideo{justify-self:end}
+.camera-flip-btn{justify-self:start;border:1px solid color-mix(in srgb,var(--accent) 45%,var(--line));background:color-mix(in srgb,var(--accent) 12%,var(--panel));color:var(--text);border-radius:10px;padding:8px 10px;font-weight:800;cursor:pointer}.camera-flip-btn:disabled{opacity:.45}
+.public-profile-card{position:relative}.public-profile-head-actions{display:flex;gap:6px;align-items:center}.profile-menu-trigger{font-size:18px!important}
+.profile-action-menu{position:absolute;z-index:80;top:58px;right:54px;min-width:210px;padding:6px;background:var(--panel);border:1px solid var(--line);border-radius:13px;box-shadow:var(--shadow);animation:menuIn .15s ease-out}
+.profile-action-menu button{display:block;width:100%;text-align:left;border:0;background:transparent;color:var(--text);padding:10px 11px;border-radius:9px;cursor:pointer;font-weight:700}.profile-action-menu button:hover{background:var(--panel2)}.profile-action-menu .danger-action{color:var(--danger)}.profile-action-menu .danger-action.is-unblock{color:var(--accent)}
+#sideSupport{border-top:1px solid var(--line);margin-top:3px;padding-top:12px}
+@media(max-width:760px){.video-recorder-info{width:min(330px,88vw)}.camera-flip-btn{padding:7px 8px;font-size:11px}.profile-action-menu{right:44px;top:54px}}

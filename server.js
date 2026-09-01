@@ -10,7 +10,7 @@ const multer = require('multer');
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, { maxHttpBufferSize: 45 * 1024 * 1024 });
+const io = new Server(server, { maxHttpBufferSize: 80 * 1024 * 1024 });
 
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || '205chating-change-this-secret-in-production';
@@ -25,7 +25,7 @@ const PURCHASE_PACKAGES = [
   { id:'s750', berries:750, rub:239 }
 ];
 const PAYMENT_PHONE = '+79811292091';
-const APP_VERSION = '14.0.0-beta';
+const APP_VERSION = '0.1.5v';
 const IS_PROD = process.env.NODE_ENV === 'production';
 
 app.disable('x-powered-by');
@@ -75,7 +75,7 @@ function loadDb(){
     parsed.channel ||= {name:'205chat',avatarUrl:'',description:'Общий чат 205chating',verified:true};
     parsed.channel.name='205chat'; parsed.channel.verified=true; parsed.channel.avatarUrl ||= ''; parsed.channel.description ||= 'Общий чат 205chating';
     for(const u of parsed.users){
-      u.contacts ||= []; u.avatarUrl ||= ''; u.bio ||= ''; u.hidePhone = !!u.hidePhone; u.online = false; u.strawberries = Math.max(0,Number(u.strawberries)||0); u.featuredGiftId ||= null;
+      u.contacts ||= []; u.blocked ||= []; u.avatarUrl ||= ''; u.bio ||= ''; u.hidePhone = !!u.hidePhone; u.online = false; u.strawberries = Math.max(0,Number(u.strawberries)||0); u.featuredGiftId ||= null;
     }
     for(const m of parsed.messages){
       m.chatType ||= 'global'; m.recipientId ||= null; m.viewers ||= []; m.reactions ||= {}; m.hiddenFor ||= []; m.replyTo ||= null; m.pinned = !!m.pinned; m.giftId ||= null;
@@ -111,17 +111,17 @@ function giftSummary(id){
 }
 function cleanUser(u,viewer=null){
   const canSeePhone = !u.hidePhone || viewer?.id===u.id || viewer?.isAdmin;
-  return {id:u.id,phone:canSeePhone?u.phone:'',phoneHidden:!!u.hidePhone,username:u.username,avatarUrl:u.avatarUrl||'',bio:u.bio||'',isAdmin:!!u.isAdmin,verified:!!u.verified,online:!!u.online,createdAt:u.createdAt,strawberries:Math.max(0,Number(u.strawberries)||0),featuredGift:giftSummary(u.featuredGiftId)};
+  return {id:u.id,phone:canSeePhone?u.phone:'',phoneHidden:!!u.hidePhone,username:u.username,avatarUrl:u.avatarUrl||'',bio:u.bio||'',isAdmin:!!u.isAdmin,verified:!!u.verified,online:!!u.online,createdAt:u.createdAt,strawberries:Math.max(0,Number(u.strawberries)||0),featuredGift:giftSummary(u.featuredGiftId),blockedByMe:!!viewer?.blocked?.includes?.(u.id)};
 }
 function adminUser(u){ return {...cleanUser(u,{isAdmin:true}),rootAdmin:isRootAdmin(u)}; }
 
 async function ensureAdmin(){
   let admin=db.users.find(u=>u.phone===ADMIN_PHONE||u.username===ADMIN_USERNAME);
   if(!admin){
-    admin={id:crypto.randomUUID(),phone:ADMIN_PHONE,username:ADMIN_USERNAME,passwordHash:await bcrypt.hash(ADMIN_PASSWORD,10),avatarUrl:'',bio:'',isAdmin:true,verified:true,online:false,contacts:[],strawberries:0,featuredGiftId:null,createdAt:new Date().toISOString()};
+    admin={id:crypto.randomUUID(),phone:ADMIN_PHONE,username:ADMIN_USERNAME,passwordHash:await bcrypt.hash(ADMIN_PASSWORD,10),avatarUrl:'',bio:'',isAdmin:true,verified:true,online:false,contacts:[],blocked:[],strawberries:0,featuredGiftId:null,createdAt:new Date().toISOString()};
     db.users.push(admin);
   }else{
-    admin.phone=ADMIN_PHONE; admin.username=ADMIN_USERNAME; admin.isAdmin=true; admin.verified=true; admin.contacts||=[]; admin.avatarUrl||=''; admin.bio||=''; admin.strawberries=Math.max(0,Number(admin.strawberries)||0);
+    admin.phone=ADMIN_PHONE; admin.username=ADMIN_USERNAME; admin.isAdmin=true; admin.verified=true; admin.contacts||=[]; admin.blocked||=[]; admin.avatarUrl||=''; admin.bio||=''; admin.strawberries=Math.max(0,Number(admin.strawberries)||0);
     if(!admin.passwordHash)admin.passwordHash=await bcrypt.hash(ADMIN_PASSWORD,10);
   }
   saveDb();
@@ -145,10 +145,12 @@ const storage=multer.diskStorage({
 });
 const upload=multer({
   storage,
-  limits:{fileSize:45*1024*1024,files:1},
+  limits:{fileSize:80*1024*1024,files:1},
   fileFilter:(_req,file,cb)=>{
     const mime=String(file.mimetype||'').toLowerCase();
-    if(mime.startsWith('image/')||mime.startsWith('video/')||mime.startsWith('audio/')||mime==='application/octet-stream')return cb(null,true);
+    const ext=path.extname(file.originalname||'').toLowerCase();
+    const known=['.jpg','.jpeg','.png','.webp','.gif','.avif','.webm','.mp4','.mov','.m4v','.ogg','.opus','.m4a','.mp3','.wav'];
+    if(mime.startsWith('image/')||mime.startsWith('video/')||mime.startsWith('audio/')||mime==='application/octet-stream'||known.includes(ext))return cb(null,true);
     cb(new Error('Недопустимый тип файла'));
   }
 });
@@ -164,7 +166,7 @@ app.post('/api/register',authRateLimit,async(req,res)=>{
   if(password.length<6)return res.status(400).json({error:'Пароль минимум 6 символов'});
   if(db.users.some(u=>u.phone===phone))return res.status(409).json({error:'Этот номер уже зарегистрирован'});
   if(db.users.some(u=>u.username.toLowerCase()===username.toLowerCase()))return res.status(409).json({error:'Этот username уже занят'});
-  const u={id:crypto.randomUUID(),phone,username,passwordHash:await bcrypt.hash(password,10),avatarUrl:'',bio:'',isAdmin:false,verified:false,online:false,contacts:[],strawberries:0,featuredGiftId:null,createdAt:new Date().toISOString()};
+  const u={id:crypto.randomUUID(),phone,username,passwordHash:await bcrypt.hash(password,10),avatarUrl:'',bio:'',isAdmin:false,verified:false,online:false,contacts:[],blocked:[],strawberries:0,featuredGiftId:null,createdAt:new Date().toISOString()};
   db.users.push(u); saveDb(); io.emit('participants',db.users.length); res.json({token:tokenFor(u),user:cleanUser(u,u)});
 });
 app.post('/api/login',authRateLimit,async(req,res)=>{
@@ -203,7 +205,7 @@ app.patch('/api/channel',auth,adminOnly,(req,res)=>{
 });
 app.post('/api/channel/avatar',auth,adminOnly,upload.single('avatar'),(req,res)=>{
   if(!req.file)return res.status(400).json({error:'Выберите изображение'});
-  if(!req.file.mimetype.startsWith('image/')){fs.unlink(req.file.path,()=>{});return res.status(400).json({error:'Нужно изображение'})}
+  const imageExt=path.extname(req.file.originalname||'').toLowerCase(); const looksImage=req.file.mimetype.startsWith('image/')||(['.jpg','.jpeg','.png','.webp','.gif','.avif'].includes(imageExt)); if(!looksImage){fs.unlink(req.file.path,()=>{});return res.status(400).json({error:'Нужно изображение JPG, PNG, WEBP, GIF или AVIF'})}
   db.channel.avatarUrl=`/uploads/${req.file.filename}`; saveDb(); io.emit('channel-updated',db.channel); res.json({channel:db.channel});
 });
 app.delete('/api/channel/messages',auth,adminOnly,(req,res)=>{
@@ -236,9 +238,12 @@ app.post('/api/contacts',auth,writeRateLimit,(req,res)=>{
   const q=String(req.body.query||'').trim(); const phone=normalizePhone(q), username=normalizeUsername(q).toLowerCase();
   const u=db.users.find(x=>x.id!==req.user.id&&(x.phone===phone||x.username.toLowerCase()===username));
   if(!u)return res.status(404).json({error:'Пользователь не найден'});
+  req.user.blocked||=[]; u.blocked||=[]; if(req.user.blocked.includes(u.id)||u.blocked.includes(req.user.id))return res.status(403).json({error:'Контакт недоступен из-за блокировки'});
   req.user.contacts||=[]; if(!req.user.contacts.includes(u.id))req.user.contacts.push(u.id); saveDb(); res.json({contact:cleanUser(u,req.user)});
 });
 app.delete('/api/contacts/:id',auth,(req,res)=>{ req.user.contacts=(req.user.contacts||[]).filter(id=>id!==req.params.id); saveDb(); res.json({ok:true}); });
+app.post('/api/users/:id/block',auth,(req,res)=>{ const peer=db.users.find(u=>u.id===req.params.id); if(!peer)return res.status(404).json({error:'Пользователь не найден'}); if(peer.id===req.user.id)return res.status(400).json({error:'Нельзя заблокировать себя'}); req.user.blocked||=[]; if(!req.user.blocked.includes(peer.id))req.user.blocked.push(peer.id); req.user.contacts=(req.user.contacts||[]).filter(id=>id!==peer.id); saveDb(); res.json({ok:true,blocked:true}); });
+app.delete('/api/users/:id/block',auth,(req,res)=>{ req.user.blocked=(req.user.blocked||[]).filter(id=>id!==req.params.id); saveDb(); res.json({ok:true,blocked:false}); });
 app.delete('/api/private/:id/messages',auth,(req,res)=>{ const peer=db.users.find(u=>u.id===req.params.id); if(!peer)return res.status(404).json({error:'Пользователь не найден'}); db.messages=db.messages.filter(m=>!((m.chatType||'global')==='private'&&((m.userId===req.user.id&&m.recipientId===peer.id)||(m.userId===peer.id&&m.recipientId===req.user.id)))); saveDb(); io.to(req.user.id).emit('private-chat-cleared',{peerId:peer.id}); io.to(peer.id).emit('private-chat-cleared',{peerId:req.user.id}); res.json({ok:true}); });
 
 function canSeeMessage(m,u){
@@ -360,22 +365,13 @@ app.post('/api/support/purchase',auth,(req,res)=>{
   saveDb();emitSupportUpdate(req.user.id);res.json({purchase:p,paymentPhone:PAYMENT_PHONE});
 });
 
-function utcDayKey(value){const d=new Date(value);return Number.isNaN(d.getTime())?'':d.toISOString().slice(0,10)}
-function shiftUtcDay(key,delta){const d=new Date(key+'T00:00:00.000Z');d.setUTCDate(d.getUTCDate()+delta);return d.toISOString().slice(0,10)}
-function privateStreak(a,b){
-  const days=new Map();
-  for(const m of db.messages){if((m.chatType||'global')!=='private')continue;const pair=(m.userId===a&&m.recipientId===b)||(m.userId===b&&m.recipientId===a);if(!pair)continue;const key=utcDayKey(m.createdAt);if(!key)continue;if(!days.has(key))days.set(key,new Set());days.get(key).add(m.userId)}
-  const active=key=>days.get(key)?.has(a)&&days.get(key)?.has(b);
-  const today=utcDayKey(new Date()),yesterday=shiftUtcDay(today,-1);let cursor=active(today)?today:(active(yesterday)?yesterday:null);if(!cursor)return 0;
-  let n=0;while(active(cursor)){n++;cursor=shiftUtcDay(cursor,-1)}return n;
-}
-app.get('/api/private/:peerId/streak',auth,(req,res)=>{const peer=db.users.find(u=>u.id===req.params.peerId);if(!peer)return res.status(404).json({error:'Пользователь не найден'});res.json({streak:privateStreak(req.user.id,peer.id)});});
+// Серии личных чатов удалены в 0.1.5v.
 
 // Admin gift/NFT market
 app.get('/api/admin/gifts',auth,adminOnly,(_req,res)=>res.json({catalog:db.giftCatalog.slice().sort((a,b)=>String(b.createdAt).localeCompare(String(a.createdAt)))}));
 app.post('/api/admin/gifts',auth,adminOnly,upload.single('image'),(req,res)=>{
   if(!req.file)return res.status(400).json({error:'Загрузите изображение'});
-  if(!req.file.mimetype.startsWith('image/')){fs.unlink(req.file.path,()=>{});return res.status(400).json({error:'Нужно изображение'})}
+  const giftExt=path.extname(req.file.originalname||'').toLowerCase(); const giftLooksImage=req.file.mimetype.startsWith('image/')||(['.jpg','.jpeg','.png','.webp','.gif','.avif'].includes(giftExt)); if(!giftLooksImage){fs.unlink(req.file.path,()=>{});return res.status(400).json({error:'Нужно изображение JPG, PNG, WEBP, GIF или AVIF'})}
   const name=String(req.body.name||'').trim().slice(0,60), price=Math.trunc(Number(req.body.price)), totalSupply=Math.trunc(Number(req.body.quantity)), type=req.body.type==='nft'?'nft':'gift';
   const releaseRaw=String(req.body.releaseAt||'').trim(); let releaseAt=null;
   if(releaseRaw){const d=new Date(releaseRaw);if(Number.isNaN(d.getTime()))return res.status(400).json({error:'Некорректная дата выхода'});releaseAt=d.toISOString();}
@@ -427,7 +423,7 @@ app.delete('/api/admin/users/:id',auth,adminOnly,(req,res)=>{
   db.gifts=db.gifts.filter(g=>g.receiverId!==u.id&&g.senderId!==u.id);
   db.purchases=db.purchases.filter(p=>p.userId!==u.id);
   delete db.supportThreads[u.id];
-  for(const x of db.users)x.contacts=(x.contacts||[]).filter(id=>id!==u.id);
+  for(const x of db.users){x.contacts=(x.contacts||[]).filter(id=>id!==u.id);x.blocked=(x.blocked||[]).filter(id=>id!==u.id);}
   saveDb();
   for(const sock of io.sockets.sockets.values())if(sock.user?.id===u.id){sock.emit('account-deleted');sock.disconnect(true);}
   io.emit('participants',db.users.length);
@@ -461,7 +457,7 @@ app.post('/api/admin/purchases/:id/reject',auth,adminOnly,(req,res)=>{const p=db
 app.use((err,req,res,next)=>{
   if(res.headersSent)return next(err);
   if(err instanceof multer.MulterError){
-    if(err.code==='LIMIT_FILE_SIZE')return res.status(413).json({error:'Файл слишком большой. Максимум 45 МБ.'});
+    if(err.code==='LIMIT_FILE_SIZE')return res.status(413).json({error:'Файл слишком большой. Максимум 80 МБ.'});
     return res.status(400).json({error:'Не удалось загрузить файл'});
   }
   if(err?.message==='Недопустимый тип файла')return res.status(400).json({error:err.message});
@@ -483,10 +479,10 @@ io.on('connection',socket=>{
     const now=Date.now(); if(now-messageWindowStart>10000){messageWindowStart=now;messageCount=0} if(++messageCount>35)return socket.emit('send-error',{error:'Слишком много сообщений. Подождите несколько секунд.'});
     const text=String(payload?.text||'').trim().slice(0,4000); const type=['text','image','video','audio'].includes(payload?.type)?payload.type:'text'; const mediaUrl=String(payload?.mediaUrl||'');
     if(type!=='text'&&!mediaUrl.startsWith('/uploads/'))return; if(type==='text'&&!text)return;
-    let recipientId=payload?.recipientId||null; const recipient=recipientId?db.users.find(x=>x.id===recipientId):null; if(recipientId&&!recipient)return; if(recipient)addMutualContact(u,recipient);
+    let recipientId=payload?.recipientId||null; const recipient=recipientId?db.users.find(x=>x.id===recipientId):null; if(recipientId&&!recipient)return; if(recipient){u.blocked||=[];recipient.blocked||=[];if(u.blocked.includes(recipient.id)||recipient.blocked.includes(u.id))return socket.emit('send-error',{error:'Сообщение не отправлено: один из пользователей заблокирован'});addMutualContact(u,recipient);}
     const reply=payload?.replyTo?db.messages.find(x=>x.id===payload.replyTo):null;
     const m={id:crypto.randomUUID(),userId:u.id,text,type,mediaUrl:type==='text'?'':mediaUrl,fileName:String(payload?.fileName||'').slice(0,120),mime:String(payload?.mime||'').slice(0,80),anonymous:!!payload?.anonymous&&!recipientId,chatType:recipientId?'private':'global',recipientId:recipientId||null,createdAt:new Date().toISOString(),viewers:[],reactions:{},hiddenFor:[],replyTo:reply&&canSeeMessage(reply,u)?reply.id:null,pinned:false,giftId:null};
-    db.messages.push(m); if(db.messages.length>5000)db.messages=db.messages.slice(-5000); saveDb(); emitToViewers('message',m,viewer=>serializeMessage(m,viewer)); if(recipient){const streak=privateStreak(u.id,recipient.id);for(const s of io.sockets.sockets.values()){if(s.user.id===u.id)s.emit('streak-updated',{peerId:recipient.id,streak});else if(s.user.id===recipient.id)s.emit('streak-updated',{peerId:u.id,streak});}}
+    db.messages.push(m); if(db.messages.length>5000)db.messages=db.messages.slice(-5000); saveDb(); emitToViewers('message',m,viewer=>serializeMessage(m,viewer));
   });
   socket.on('view-message',id=>{const m=db.messages.find(x=>x.id===id);if(!m||!canSeeMessage(m,u)||m.userId===u.id)return;m.viewers||=[];if(m.viewers.includes(u.id))return;m.viewers.push(u.id);saveDb();emitToViewers('message-views',m,{id:m.id,views:m.viewers.length});});
   socket.on('react-message',payload=>{const id=payload?.id,emoji=payload?.emoji;const allowed=['❤','👍','😂','💋','👀','🤔','🤢','😎','🤡','💩'];if(!allowed.includes(emoji))return;const m=db.messages.find(x=>x.id===id);if(!m||!canSeeMessage(m,u))return;m.reactions||={};m.reactions[emoji]||=[];const i=m.reactions[emoji].indexOf(u.id);if(i>=0)m.reactions[emoji].splice(i,1);else m.reactions[emoji].push(u.id);saveDb();emitToViewers('message-reactions',m,viewer=>({id:m.id,reactions:serializeMessage(m,viewer).reactions}));});
@@ -497,7 +493,7 @@ io.on('connection',socket=>{
 });
 
 ensureAdmin().then(()=>server.listen(PORT,'0.0.0.0',()=>{
-  console.log(`205chating v14 soft-launch running on port ${PORT}`);
+  console.log(`205chating 0.1.5v running on port ${PORT}`);
   if(IS_PROD && JWT_SECRET==='205chating-change-this-secret-in-production')console.warn('[security] Set JWT_SECRET in Railway variables before public launch.');
   if(IS_PROD)console.warn('[storage] data/db.json and uploads are local. Use persistent storage before scaling or accepting meaningful payment volume.');
 }));

@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#101827">
   <meta name="description" content="205chating — быстрый мессенджер с личными чатами, подарками и 205chat.">
   <title>205chating</title>
-  <link rel="stylesheet" href="style.css?v=14">
+  <link rel="stylesheet" href="style.css?v=015">
 </head>
 <body>
 <div id="toast" class="toast"></div>
@@ -49,6 +49,7 @@
       <button id="sideProfile" class="side-profile-row"><div id="meAvatar" class="avatar">205</div><div><b id="meName">@user</b><span id="mePhone">+7...</span></div></button>
       <button id="sideAddContact" class="side-menu-item">＋ <span>Добавить контакт</span></button>
       <button id="sideSettings" class="side-menu-item">⚙ <span>Настройки</span></button>
+      <button id="sideSupport" class="side-menu-item">? <span>Поддержка</span></button>
       <button id="sideAdmin" class="side-menu-item hidden">◇ <span>Панель администратора</span></button>
     </div>
 
@@ -102,7 +103,7 @@
         <button id="send" class="send-btn">➤</button>
       </div>
       <div id="recordingBar" class="recording-bar hidden"><span class="record-dot"></span><span id="recordTime">00:00</span><span id="recordLabel">Запись голосового…</span><button id="cancelRecord" class="text-btn" data-i18n="common.cancel">Отмена</button></div>
-      <div id="videoRecorder" class="video-recorder hidden"><div id="videoSquareFrame" class="video-square-frame video-triangle-frame"><video id="cameraPreview" autoplay muted playsinline></video></div><div class="video-recorder-info"><span><b>▶</b> Видео-треугольник</span><button id="cancelVideo" class="text-btn" data-i18n="common.cancel">Отмена</button></div></div>
+      <div id="videoRecorder" class="video-recorder hidden"><div id="videoSquareFrame" class="video-square-frame video-triangle-frame"><video id="cameraPreview" autoplay muted playsinline></video></div><div class="video-recorder-info"><button id="flipCamera" class="camera-flip-btn" type="button" title="Перевернуть камеру">↻ Камера</button><span><b>▶</b> Видео-треугольник</span><button id="cancelVideo" class="text-btn" data-i18n="common.cancel">Отмена</button></div></div>
     </div>
   </main>
 </section>
@@ -117,9 +118,9 @@
       <div class="setting-row"><div><b data-i18n="settings.theme">Тема</b><span data-i18n="settings.themeHint">Светлая или тёмная</span></div><div class="segmented"><button id="themeDark" data-i18n="settings.dark">Тёмная</button><button id="themeLight" data-i18n="settings.light">Светлая</button></div></div>
       <div class="setting-row"><div><b data-i18n="settings.language">Язык</b><span>Language</span></div><div class="segmented"><button id="langRu">Русский</button><button id="langEn">English</button></div></div>
       <div class="setting-row"><div><b>Аккаунты</b><span>Добавить ещё один аккаунт</span></div><button id="settingsAddAccount" class="small-primary">+ Добавить аккаунт</button></div><div class="setting-row"><div><b>Номер телефона</b><span>Кто видит номер в вашем профиле</span></div><label class="privacy-switch"><input id="hidePhoneSetting" type="checkbox"><span>Скрыть номер</span></label></div>
-      <div class="setting-row support-setting"><div><b>Поддержка</b><span>Проблема, жалоба или вопрос по 205chating</span></div><button id="openSupport" class="small-primary">Обратиться в поддержку</button></div>
+      <button id="openSupport" class="hidden" type="button"></button>
       <div class="setting-row berry-setting"><div><b>Баланс</b><span>Клубнички для подарков и NFT</span></div><div class="balance-actions"><div id="settingsBerryBalance" class="berry-balance">0🍓</div><button id="openBalance" class="small-primary">Пополнить</button></div></div>
-      <div class="setting-row app-info-row"><div><b>205chating Beta</b><span>Мягкий запуск · сообщайте об ошибках через поддержку</span></div><span class="version-pill">v14</span></div>
+      <div class="setting-row app-info-row"><div><b>205chating Beta</b><span>Мягкий запуск · сообщайте об ошибках через поддержку</span></div><span class="version-pill">0.1.5v</span></div>
     </div>
   </div>
 </section>
@@ -158,9 +159,10 @@
 </div></div>
 
 <div id="userProfileModal" class="modal hidden"><div class="modal-card profile-card public-profile-card">
-  <div class="modal-head"><div><h2>Профиль</h2><p>Пользователь 205chating</p></div><button class="icon-btn modal-close" data-close="userProfileModal">×</button></div>
+  <div class="modal-head"><div><h2>Профиль</h2><p>Пользователь 205chating</p></div><div class="public-profile-head-actions"><button id="userProfileMenuBtn" class="icon-btn profile-menu-trigger" type="button" title="Действия">☰</button><button class="icon-btn modal-close" data-close="userProfileModal">×</button></div></div>
+  <div id="userProfileMenu" class="profile-action-menu hidden"><button id="shareContactBtn" type="button">Поделиться контактом</button><button id="deleteConversationBtn" type="button">Удалить переписку</button><button id="blockUserBtn" class="danger-action" type="button">Заблокировать</button></div>
   <div class="profile-main"><div id="viewUserAvatar" class="avatar avatar-xl">U</div><div class="profile-id"><b id="viewUserName">@user</b><span id="viewUserPhone">+7...</span></div></div>
-  <div class="public-profile-actions"><button id="writeUserBtn" class="primary">Написать</button><div class="profile-tabs public-profile-tabs"><button class="active" data-public-tab="main">Профиль</button><button data-public-tab="gifts">Подарки</button></div></div><div id="publicMainTab" class="profile-tab-panel"><div class="public-bio"><b>О себе</b><p id="viewUserBio">—</p></div><div id="publicContactActions" class="public-contact-actions"><button id="clearPrivateChat" class="secondary">Очистить весь чат</button><button id="deleteContact" class="danger-button">Удалить контакт</button></div></div><div id="publicGiftsTab" class="profile-tab-panel hidden"><div class="gift-profile-section public-gifts-section"><div class="section-title"><b>Подарки</b></div><div id="viewUserGifts" class="profile-gifts profile-gifts-grid"></div></div></div>
+  <div class="public-profile-actions"><button id="writeUserBtn" class="primary">Написать</button><div class="profile-tabs public-profile-tabs"><button class="active" data-public-tab="main">Профиль</button><button data-public-tab="gifts">Подарки</button></div></div><div id="publicMainTab" class="profile-tab-panel"><div class="public-bio"><b>О себе</b><p id="viewUserBio">—</p></div><div id="publicContactActions" class="public-contact-actions"><button id="clearPrivateChat" class="hidden" type="button"></button><button id="deleteContact" class="danger-button">Удалить контакт</button></div></div><div id="publicGiftsTab" class="profile-tab-panel hidden"><div class="gift-profile-section public-gifts-section"><div class="section-title"><b>Подарки</b></div><div id="viewUserGifts" class="profile-gifts profile-gifts-grid"></div></div></div>
 </div></div>
 
 <div id="channelProfileModal" class="modal hidden"><div class="modal-card profile-card channel-profile-card">
@@ -195,6 +197,6 @@
 
 <div id="maintenanceOverlay" class="maintenance-overlay hidden"><div class="maintenance-copy"><h1>технический перерыв🔌</h1><p>скоро все заработает</p></div></div>
 <script src="/socket.io/socket.io.js"></script>
-<script src="app.js?v=14"></script>
+<script src="app.js?v=015"></script>
 </body>
 </html>
