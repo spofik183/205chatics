@@ -49,3 +49,7 @@ Railway использует `process.env.PORT`, сервер слушает `0.
 ## 0.1.5v market/referral hotfix
 - Triangle upload now sends an explicit media kind to avoid MIME-related HTTP 400 errors.
 - Rounded triangle mask, split Gifts/NFT market, referral links, NFT supply extension, sidebar contact FAB.
+
+
+## 0.1.7v Launch
+Premium promo redesign, channels for all users with settings/delete/contact picker, admin analytics, quick-create menu, mobile/UI polish.

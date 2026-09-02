@@ -74,7 +74,7 @@ function loadDb(){
     parsed.channels ||= [];
     parsed.referrals = parsed.referrals.map(r=>({id:r.id||crypto.randomUUID(),code:String(r.code||'').trim(),berries:Math.max(1,Math.trunc(Number(r.berries)||1)),createdAt:r.createdAt||new Date().toISOString(),createdBy:r.createdBy||null,claimedUserIds:Array.isArray(r.claimedUserIds)?r.claimedUserIds:[]})).filter(r=>r.code);
     parsed.premiumRequests = parsed.premiumRequests.map(p=>({id:p.id||crypto.randomUUID(),userId:p.userId,months:[1,3,6].includes(Number(p.months))?Number(p.months):1,rub:Number(p.rub)||139,status:p.status||'pending',createdAt:p.createdAt||new Date().toISOString(),updatedAt:p.updatedAt||p.createdAt||new Date().toISOString()})).filter(p=>p.userId);
-    parsed.channels = parsed.channels.map(c=>({id:c.id||crypto.randomUUID(),name:String(c.name||'Канал').slice(0,60),ownerId:c.ownerId||null,isPublic:c.isPublic!==false,members:Array.isArray(c.members)?c.members:[],createdAt:c.createdAt||new Date().toISOString()})).filter(c=>c.ownerId);
+    parsed.channels = parsed.channels.map(c=>({id:c.id||crypto.randomUUID(),name:String(c.name||'Канал').slice(0,60),description:String(c.description||'').slice(0,500),avatarUrl:c.avatarUrl||'',ownerId:c.ownerId||null,isPublic:c.isPublic!==false,members:Array.isArray(c.members)?c.members:[],createdAt:c.createdAt||new Date().toISOString()})).filter(c=>c.ownerId);
     parsed.maintenanceUntil ||= null;
     // v10: базовых подарков больше нет. Рынок полностью создаёт администратор.
     parsed.giftCatalog = parsed.giftCatalog.filter(g=>!g.seed).map(g=>({id:g.id||crypto.randomUUID(),key:g.key||g.id||crypto.randomUUID(),name:String(g.name||'Подарок'),price:Math.max(1,Math.trunc(Number(g.price)||1)),image:g.image||'',type:g.type==='nft'?'nft':'gift',totalSupply:Math.max(1,Math.trunc(Number(g.totalSupply)||1)),remaining:Math.max(0,Math.trunc(Number(g.remaining ?? g.totalSupply)||0)),createdAt:g.createdAt||new Date().toISOString(),releaseAt:g.releaseAt||null,createdBy:g.createdBy||null}));
@@ -468,17 +468,21 @@ app.get('/api/channels',auth,(req,res)=>{
   res.json({channels});
 });
 app.post('/api/channels',auth,(req,res)=>{
-  if(!isPremium(req.user))return res.status(403).json({error:'Создание каналов доступно в Chatics Premium'});
   const name=String(req.body.name||'').trim().slice(0,60);if(name.length<2)return res.status(400).json({error:'Название канала слишком короткое'});
   const isPublic=req.body.isPublic!==false;const inviteNames=Array.isArray(req.body.invites)?req.body.invites:[];
   const members=[...new Set(inviteNames.map(x=>normalizeUsername(x).toLowerCase()).map(n=>db.users.find(u=>u.username.toLowerCase()===n)?.id).filter(Boolean).filter(id=>id!==req.user.id))];
-  const c={id:crypto.randomUUID(),name,ownerId:req.user.id,isPublic,members,createdAt:new Date().toISOString()};db.channels.push(c);saveDb();res.json({channel:{...c,owner:cleanUser(req.user),mine:true}});
+  const c={id:crypto.randomUUID(),name,description:'',avatarUrl:'',ownerId:req.user.id,isPublic,members,createdAt:new Date().toISOString()};db.channels.push(c);saveDb();res.json({channel:{...c,owner:cleanUser(req.user),mine:true}});
 });
 app.post('/api/channels/:id/invite',auth,(req,res)=>{
   const c=channelFor(req.params.id);if(!c)return res.status(404).json({error:'Канал не найден'});if(c.ownerId!==req.user.id)return res.status(403).json({error:'Только создатель канала может приглашать'});
   const username=normalizeUsername(req.body.username).toLowerCase(),u=db.users.find(x=>x.username.toLowerCase()===username);if(!u)return res.status(404).json({error:'Пользователь не найден'});
   c.members||=[];if(!c.members.includes(u.id))c.members.push(u.id);saveDb();res.json({ok:true});
 });
+app.patch('/api/channels/:id',auth,(req,res)=>{const c=channelFor(req.params.id);if(!c)return res.status(404).json({error:'Канал не найден'});if(c.ownerId!==req.user.id)return res.status(403).json({error:'Только создатель может менять канал'});if(req.body.name!==undefined){const n=String(req.body.name).trim().slice(0,60);if(n.length<2)return res.status(400).json({error:'Название слишком короткое'});c.name=n}if(req.body.description!==undefined)c.description=String(req.body.description||'').slice(0,500);if(req.body.isPublic!==undefined)c.isPublic=!!req.body.isPublic;if(Array.isArray(req.body.members))c.members=[...new Set(req.body.members.filter(id=>db.users.some(u=>u.id===id)&&id!==req.user.id))];saveDb();io.emit('channels-updated');res.json({channel:{...c,mine:true,owner:cleanUser(req.user)}})});
+app.post('/api/channels/:id/avatar',auth,upload.single('avatar'),(req,res)=>{const c=channelFor(req.params.id);if(!c)return res.status(404).json({error:'Канал не найден'});if(c.ownerId!==req.user.id)return res.status(403).json({error:'Только создатель может менять канал'});if(!req.file)return res.status(400).json({error:'Выберите изображение'});c.avatarUrl='/uploads/'+req.file.filename;saveDb();io.emit('channels-updated');res.json({channel:c})});
+app.delete('/api/channels/:id',auth,(req,res)=>{const c=channelFor(req.params.id);if(!c)return res.status(404).json({error:'Канал не найден'});if(c.ownerId!==req.user.id&&!req.user.isAdmin)return res.status(403).json({error:'Недостаточно прав'});db.channels=db.channels.filter(x=>x.id!==c.id);db.messages=db.messages.filter(m=>m.channelId!==c.id);saveDb();io.emit('channels-updated');res.json({ok:true})});
+app.get('/api/admin/analytics',auth,adminOnly,(req,res)=>{const now=Date.now(),day=86400000;const registrations=[];for(let i=13;i>=0;i--){const d=new Date(now-i*day),key=d.toISOString().slice(0,10);registrations.push({date:key,count:db.users.filter(u=>String(u.createdAt||'').slice(0,10)===key).length})}res.json({online:db.users.filter(u=>u.online).length,users:db.users.length,messages:db.messages.length,privateMessages:db.messages.filter(m=>(m.chatType||'global')==='private').length,channels:db.channels.length,gifts:db.gifts.length,premium:db.users.filter(isPremium).length,registrations})});
+
 
 // Strawberry purchases: manual payment verification by admin
 app.get('/api/strawberries/packages',auth,(_req,res)=>res.json({packages:PURCHASE_PACKAGES,paymentPhone:PAYMENT_PHONE}));
@@ -568,7 +572,7 @@ io.on('connection',socket=>{
     const text=String(payload?.text||'').trim().slice(0,4000); const type=['text','image','video','audio','file','poll'].includes(payload?.type)?payload.type:'text'; const mediaUrl=String(payload?.mediaUrl||'');
     if(!['text','poll'].includes(type)&&!mediaUrl.startsWith('/uploads/'))return; if(type==='text'&&!text)return;
     let channelId=String(payload?.channelId||'')||null;let recipientId=channelId?null:(payload?.recipientId||null);
-    let channelObj=null;if(channelId){channelObj=channelFor(channelId);if(!canAccessChannel(channelObj,u))return socket.emit('send-error',{error:'Нет доступа к каналу'});if(channelObj.ownerId!==u.id)return socket.emit('send-error',{error:'В канале может писать только его создатель'});if(!isPremium(u))return socket.emit('send-error',{error:'Для публикации в канале нужен Chatics Premium'});}
+    let channelObj=null;if(channelId){channelObj=channelFor(channelId);if(!canAccessChannel(channelObj,u))return socket.emit('send-error',{error:'Нет доступа к каналу'});if(channelObj.ownerId!==u.id)return socket.emit('send-error',{error:'В канале может писать только его создатель'});}
  const recipient=recipientId?db.users.find(x=>x.id===recipientId):null; if(recipientId&&!recipient)return; if(recipient){u.blocked||=[];recipient.blocked||=[];if(u.blocked.includes(recipient.id)||recipient.blocked.includes(u.id))return socket.emit('send-error',{error:'Сообщение не отправлено: один из пользователей заблокирован'});addMutualContact(u,recipient);}
     const reply=payload?.replyTo?db.messages.find(x=>x.id===payload.replyTo):null;
     let poll=null;if(type==='poll'){if(!isPremium(u))return socket.emit('send-error',{error:'Опросы доступны в Chatics Premium'});const q=String(payload?.poll?.question||text||'').trim().slice(0,180);const opts=(Array.isArray(payload?.poll?.options)?payload.poll.options:[]).map(x=>String(x||'').trim().slice(0,80)).filter(Boolean).slice(0,8);if(q.length<2||opts.length<2)return socket.emit('send-error',{error:'В опросе нужно минимум 2 варианта'});poll={question:q,options:opts.map(t=>({id:crypto.randomUUID(),text:t,voters:[]}))};}
@@ -585,7 +589,7 @@ io.on('connection',socket=>{
 });
 
 ensureAdmin().then(()=>server.listen(PORT,'0.0.0.0',()=>{
-  console.log(`205chating 0.1.5v running on port ${PORT}`);
+  console.log(`205chating 0.1.7v running on port ${PORT}`);
   if(IS_PROD && JWT_SECRET==='205chating-change-this-secret-in-production')console.warn('[security] Set JWT_SECRET in Railway variables before public launch.');
   if(IS_PROD)console.warn('[storage] data/db.json and uploads are local. Use persistent storage before scaling or accepting meaningful payment volume.');
 }));

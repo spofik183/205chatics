@@ -182,7 +182,7 @@
 
 <div id="adminModal" class="modal hidden"><div class="modal-card admin-card">
   <div class="modal-head"><div><h2>Панель администратора</h2><p>Управление 205chating</p></div><button class="icon-btn modal-close" data-close="adminModal">×</button></div>
-  <div class="admin-tabs"><button class="active" data-admin-tab="users">Пользователи</button><button data-admin-tab="gifts">Подарки и NFT</button><button data-admin-tab="referrals">Реферальные ссылки</button><button data-admin-tab="purchases">Покупки 🍓</button><button data-admin-tab="premium">Premium 👑</button></div>
+  <div class="admin-tabs"><button class="active" data-admin-tab="users">Пользователи</button><button data-admin-tab="gifts">Подарки и NFT</button><button data-admin-tab="referrals">Реферальные ссылки</button><button data-admin-tab="purchases">Покупки 🍓</button><button data-admin-tab="premium">Premium</button><button data-admin-tab="analytics">Аналитика</button></div>
   <div id="adminUsersTab" class="admin-tab-panel">
     <div class="notice">Пароли не отображаются: сервер хранит только защищённые bcrypt-хеши.</div>
     <div class="admin-actions"><button id="adminChannelBtn" class="secondary">205chat: настройки канала</button><button id="adminSupportBtn" class="secondary">Поддержка</button><button id="adminAuditBtn" class="secondary">Контакты</button><button id="refreshAdminBtn" class="secondary">Обновить список</button></div>
@@ -203,6 +203,7 @@
     <div class="section-title"><div><b>Покупки клубничек</b><span>Заявки на ручную проверку переводов.</span></div><button id="refreshPurchases" class="text-btn">Обновить</button></div>
     <div id="purchaseList" class="purchase-list"></div>
   </div>
+  <div id="adminAnalyticsTab" class="admin-tab-panel hidden"><div class="section-title"><div><b>Аналитика</b><span>Состояние 205chating в реальном времени</span></div><button id="refreshAnalytics" class="text-btn">Обновить</button></div><div id="analyticsCards" class="analytics-cards"></div><div class="analytics-chart-card"><b>Регистрации за 14 дней</b><canvas id="analyticsChart" width="720" height="240"></canvas></div></div>
   <div id="adminPremiumTab" class="admin-tab-panel hidden">
     <div class="section-title"><div><b>Chatics Premium 👑</b><span>Проверка заявок и выдача Premium.</span></div><button id="refreshPremiumRequests" class="text-btn">Обновить</button></div>
     <div id="premiumRequestList" class="purchase-list"></div>
@@ -229,8 +230,7 @@
 </div></div>
 
 <div id="premiumPromo" class="modal hidden"><div class="modal-card premium-promo-card">
-  <div class="premium-promo-icon">👑</div><h2>Попробуй Chatics Premium</h2><p>Каналы, опросы, закрепление сообщений и специальная отметка возле username.</p>
-  <div class="premium-promo-actions"><button id="promoOpenPremium" class="primary wide">Посмотреть Premium</button><button id="promoLater" class="secondary wide">Позже</button></div>
+  <div class="premium-promo-icon premium-berry-logo">🍓</div><h2>Chatics Premium</h2><p class="premium-lead">Больше свободы и дополнительных возможностей в 205chating.</p><div class="premium-promo-list"><div><span>◆</span><b>Особая отметка</b><small>Синяя контурная клубничка возле username</small></div><div><span>◆</span><b>Закрепление сообщений</b><small>Сохраняй важное сверху чата</small></div><div><span>◆</span><b>Каналы</b><small>Создавай и настраивай свои каналы</small></div><div><span>◆</span><b>Опросы</b><small>Голосования прямо в сообщениях</small></div></div><div class="premium-promo-actions"><button id="promoOpenPremium" class="premium-connect wide">Подключить за 139₽ в месяц</button><button id="promoLater" class="secondary wide">Не сейчас</button></div>
 </div></div>
 
 <div id="pollModal" class="modal hidden"><div class="modal-card small-card">
@@ -243,17 +243,20 @@
 </div></div>
 
 <div id="channelCreateModal" class="modal hidden"><div class="modal-card small-card">
-  <div class="modal-head"><div><h2>Создать канал 👑</h2><p>Писать в канале сможет только его создатель.</p></div><button class="icon-btn modal-close" data-close="channelCreateModal">×</button></div>
+  <div class="modal-head"><div><h2>Создать канал</h2><p>Писать в канале сможет только его создатель.</p></div><button class="icon-btn modal-close" data-close="channelCreateModal">×</button></div>
   <form id="channelCreateForm" class="stack-form">
     <label><span>Название</span><input id="channelName" maxlength="60" required placeholder="Название канала"></label>
     <label class="channel-privacy-row"><span>Тип канала</span><select id="channelPrivacy"><option value="public">Публичный</option><option value="private">Частный</option></select></label>
-    <label><span>Пригласить друзей</span><input id="channelInvites" placeholder="@user1, @user2"></label>
+    <label><span>Пригласить друзей</span><div id="channelContactPicker" class="channel-contact-picker"></div></label>
     <button class="primary wide" type="submit">Создать канал</button>
   </form>
 </div></div>
 
+
+<div id="fabChoiceModal" class="modal hidden"><div class="modal-card small-card"><div class="modal-head"><div><h2>Создать</h2><p>Выберите действие</p></div><button class="icon-btn modal-close" data-close="fabChoiceModal">×</button></div><div class="fab-choice"><button id="fabNewContact" class="secondary wide">＋ Новый контакт</button><button id="fabNewChannel" class="secondary wide">＃ Создать канал</button></div></div></div>
+<div id="channelSettingsModal" class="modal hidden"><div class="modal-card profile-card"><div class="modal-head"><div><h2>Настройки канала</h2><p>Профиль и участники</p></div><button class="icon-btn modal-close" data-close="channelSettingsModal">×</button></div><div class="channel-settings-main"><button id="customChannelAvatar" class="avatar avatar-xl">#</button><input id="customChannelAvatarInput" type="file" accept="image/*" hidden><div><b id="customChannelTitle">Канал</b><span id="customChannelMeta"></span></div></div><form id="channelSettingsForm" class="stack-form"><label><span>Название</span><input id="customChannelName" maxlength="60"></label><label><span>Описание</span><textarea id="customChannelDescription" maxlength="500" rows="4"></textarea></label><label><span>Тип</span><select id="customChannelPrivacy"><option value="public">Публичный</option><option value="private">Частный</option></select></label><label><span>Участники</span><div id="channelSettingsContacts" class="channel-contact-picker"></div></label><button class="primary wide" type="submit">Сохранить</button><button id="deleteChannelBtn" class="danger-button wide" type="button">Удалить канал</button></form></div></div>
 <div id="maintenanceOverlay" class="maintenance-overlay hidden"><div class="maintenance-copy"><h1>технический перерыв🔌</h1><p>скоро все заработает</p></div></div>
 <script src="/socket.io/socket.io.js"></script>
-<script src="app.js?v=0153"></script>
+<script src="app.js?v=017"></script>
 </body>
 </html>

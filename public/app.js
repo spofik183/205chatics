@@ -1351,3 +1351,44 @@ send=function(){
   return premiumTypedSendBase();
 };
 $('#send').onclick=send;
+
+// ========================= 0.1.7v launch polish =========================
+let selectedChannelInviteIds=new Set();
+function renderChannelContactPicker(target, selected=new Set()){
+  const box=$(target); if(!box)return; box.innerHTML='';
+  if(!contacts.length){box.innerHTML='<small class="muted">Сначала добавьте контакты</small>';return}
+  contacts.forEach(u=>{const l=document.createElement('label');l.className='channel-contact-option';l.innerHTML=`<input type="checkbox" value="${u.id}" ${selected.has(u.id)?'checked':''}><span class="avatar picker-avatar"></span><b>@${escapeHtml(u.username)}</b>`;setAvatar(l.querySelector('.avatar'),u);box.appendChild(l)});
+}
+function selectedContactIds(target){return [...$$(target+' input:checked')].map(x=>x.value)}
+$('#createChannelBtn')?.addEventListener('click',e=>{e.stopImmediatePropagation();selectedChannelInviteIds.clear();renderChannelContactPicker('#channelContactPicker');openModal('channelCreateModal')},{capture:true});
+$('#sidebarAddFab').onclick=()=>openModal('fabChoiceModal');
+$('#fabNewContact').onclick=()=>{closeModal('fabChoiceModal');openModal('contactModal')};
+$('#fabNewChannel').onclick=()=>{closeModal('fabChoiceModal');selectedChannelInviteIds.clear();renderChannelContactPicker('#channelContactPicker');openModal('channelCreateModal')};
+// Replace old channel submit with contact IDs translated to usernames for backward compatibility.
+$('#channelCreateForm')?.addEventListener('submit',async e=>{
+  e.preventDefault();e.stopImmediatePropagation();
+  const ids=selectedContactIds('#channelContactPicker');const invites=ids.map(id=>contacts.find(c=>c.id===id)?.username).filter(Boolean);
+  try{await api('/api/channels',{method:'POST',body:JSON.stringify({name:$('#channelName').value.trim(),isPublic:$('#channelPrivacy').value==='public',invites})});e.currentTarget.reset();closeModal('channelCreateModal');toast('Канал создан');await loadPremiumChannels()}catch(err){toast(err.message)}
+},{capture:true});
+
+async function openCustomChannelSettings(){
+  if(!currentChannel)return; if(!currentChannel.mine)return toast('Настройки доступны создателю канала');
+  $('#customChannelName').value=currentChannel.name||'';$('#customChannelDescription').value=currentChannel.description||'';$('#customChannelPrivacy').value=currentChannel.isPublic?'public':'private';$('#customChannelTitle').textContent=currentChannel.name;$('#customChannelMeta').textContent=currentChannel.isPublic?'Публичный канал':'Частный канал';setAvatar($('#customChannelAvatar'),{username:currentChannel.name,avatarUrl:currentChannel.avatarUrl||''});renderChannelContactPicker('#channelSettingsContacts',new Set(currentChannel.members||[]));openModal('channelSettingsModal');
+}
+const v17ChatProfileBase=openChatProfile;openChatProfile=async function(){if(currentChannel)return openCustomChannelSettings();return v17ChatProfileBase()};$('#chatProfileOpen').onclick=openChatProfile;
+$('#customChannelAvatar').onclick=()=>$('#customChannelAvatarInput').click();
+$('#customChannelAvatarInput').onchange=async()=>{const f=$('#customChannelAvatarInput').files[0];if(!f||!currentChannel)return;const fd=new FormData();fd.append('avatar',f);try{const d=await api('/api/channels/'+currentChannel.id+'/avatar',{method:'POST',body:fd});currentChannel={...currentChannel,...d.channel};setAvatar($('#customChannelAvatar'),{username:currentChannel.name,avatarUrl:currentChannel.avatarUrl});await loadPremiumChannels();toast('Аватар канала обновлён')}catch(e){toast(e.message)}};
+$('#channelSettingsForm').onsubmit=async e=>{e.preventDefault();if(!currentChannel)return;try{const d=await api('/api/channels/'+currentChannel.id,{method:'PATCH',body:JSON.stringify({name:$('#customChannelName').value.trim(),description:$('#customChannelDescription').value,isPublic:$('#customChannelPrivacy').value==='public',members:selectedContactIds('#channelSettingsContacts')})});currentChannel={...currentChannel,...d.channel};closeModal('channelSettingsModal');await loadPremiumChannels();updateChatHeader();toast('Канал обновлён')}catch(x){toast(x.message)}};
+$('#deleteChannelBtn').onclick=async()=>{if(!currentChannel||!confirm('Удалить канал и все его сообщения?'))return;try{await api('/api/channels/'+currentChannel.id,{method:'DELETE'});currentChannel=null;closeModal('channelSettingsModal');await loadPremiumChannels();$('#globalChat').click();toast('Канал удалён')}catch(e){toast(e.message)}};
+
+// Better channel cards: avatar and settings hint.
+const v17RenderChannelsBase=renderPremiumChannels;renderPremiumChannels=function(){const box=$('#channelsList');if(!box)return;box.innerHTML='';premiumChannels.forEach(c=>{const b=document.createElement('button');b.className='channel-row'+(currentChannel?.id===c.id?' active':'');b.innerHTML=`<div class="avatar channel-avatar"></div><div><b>${escapeHtml(c.name)}</b><span>${c.isPublic?'публичный':'частный'}${c.mine?' · ваш':''}</span></div>`;setAvatar(b.querySelector('.channel-avatar'),{username:c.name,avatarUrl:c.avatarUrl||''});b.onclick=()=>openPremiumChannel(c);box.appendChild(b)});if(!premiumChannels.length)box.innerHTML='<div class="channels-empty">Пока нет каналов</div>'};
+
+async function loadAnalytics(){if(!me?.isAdmin)return;try{const d=await api('/api/admin/analytics');const cards=$('#analyticsCards');cards.innerHTML=[['Сейчас онлайн',d.online],['Пользователей',d.users],['Сообщений',d.messages],['Личных сообщений',d.privateMessages],['Каналов',d.channels],['Premium',d.premium]].map(([a,b])=>`<div><span>${a}</span><b>${b}</b></div>`).join('');drawAnalyticsChart(d.registrations||[])}catch(e){toast(e.message)}}
+function drawAnalyticsChart(rows){const c=$('#analyticsChart');if(!c)return;const ctx=c.getContext('2d'),w=c.width,h=c.height,p=30,max=Math.max(1,...rows.map(x=>x.count));ctx.clearRect(0,0,w,h);ctx.strokeStyle=getComputedStyle(document.documentElement).getPropertyValue('--line').trim()||'#333';ctx.lineWidth=1;for(let i=0;i<5;i++){const y=p+(h-p*2)*i/4;ctx.beginPath();ctx.moveTo(p,y);ctx.lineTo(w-p,y);ctx.stroke()}ctx.strokeStyle=getComputedStyle(document.documentElement).getPropertyValue('--accent').trim()||'#2f7cff';ctx.lineWidth=3;ctx.beginPath();rows.forEach((r,i)=>{const x=p+(w-p*2)*(i/Math.max(1,rows.length-1)),y=h-p-(h-p*2)*(r.count/max);i?ctx.lineTo(x,y):ctx.moveTo(x,y)});ctx.stroke();ctx.fillStyle=getComputedStyle(document.documentElement).getPropertyValue('--muted').trim()||'#888';ctx.font='11px sans-serif';rows.forEach((r,i)=>{if(i%2===0)ctx.fillText(r.date.slice(5),p+(w-p*2)*(i/Math.max(1,rows.length-1))-12,h-8)})}
+const v17SetAdminTabBase=setAdminTab;setAdminTab=function(tab){v17SetAdminTabBase(tab);$('#adminAnalyticsTab')?.classList.toggle('hidden',tab!=='analytics');if(tab==='analytics')loadAnalytics()};$$('[data-admin-tab]').forEach(b=>b.onclick=()=>setAdminTab(b.dataset.adminTab));$('#refreshAnalytics').onclick=loadAnalytics;
+
+// Telegram-like premium promo CTA: open full feature sheet, then user chooses a plan.
+$('#promoOpenPremium').onclick=()=>{if(me)localStorage.setItem(`205premium-promo-${me.id}`,'1');closeModal('premiumPromo');openModal('premiumModal')};
+// Realtime channel refresh.
+const v17ConnectBase=connect;connect=function(){v17ConnectBase();socket?.on('channels-updated',()=>loadPremiumChannels())};
