@@ -25,7 +25,7 @@ const PURCHASE_PACKAGES = [
   { id:'s750', berries:750, rub:239 }
 ];
 const PAYMENT_PHONE = '+79811292091';
-const APP_VERSION = '0.1.8v';
+const APP_VERSION = '0.1.9v';
 const IS_PROD = process.env.NODE_ENV === 'production';
 
 app.disable('x-powered-by');
@@ -60,7 +60,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 function defaultDb(){
   return {
     users: [], messages: [], gifts: [], purchases: [], supportThreads: {},
-    giftCatalog: [], referrals: [], premiumRequests: [], channels: [], stocks: [], stockHoldings: {}, stockTrades: [], maintenanceUntil: null,
+    giftCatalog: [], referrals: [], premiumRequests: [], channels: [], stocks: [], stockHoldings: {}, stockTrades: [], reports: [], maintenanceUntil: null,
     channel: { name:'205chat', avatarUrl:'', description:'Общий чат 205chating', verified:true }
   };
 }
@@ -75,6 +75,7 @@ function loadDb(){
     parsed.stocks ||= [];
     parsed.stockHoldings ||= {};
     parsed.stockTrades ||= [];
+    parsed.reports ||= [];
     parsed.referrals = parsed.referrals.map(r=>({id:r.id||crypto.randomUUID(),code:String(r.code||'').trim(),berries:Math.max(1,Math.trunc(Number(r.berries)||1)),createdAt:r.createdAt||new Date().toISOString(),createdBy:r.createdBy||null,claimedUserIds:Array.isArray(r.claimedUserIds)?r.claimedUserIds:[]})).filter(r=>r.code);
     parsed.premiumRequests = parsed.premiumRequests.map(p=>({id:p.id||crypto.randomUUID(),userId:p.userId,months:[1,3,6].includes(Number(p.months))?Number(p.months):1,rub:Number(p.rub)||139,status:p.status||'pending',createdAt:p.createdAt||new Date().toISOString(),updatedAt:p.updatedAt||p.createdAt||new Date().toISOString()})).filter(p=>p.userId);
     // 0.1.8v: пользовательские каналы полностью удалены. Старые записи очищаются при миграции.
@@ -87,6 +88,7 @@ function loadDb(){
     })).filter(st=>st.creatorId&&st.name);
     if(!parsed.stockHoldings || typeof parsed.stockHoldings!=='object' || Array.isArray(parsed.stockHoldings))parsed.stockHoldings={};
     parsed.stockTrades = (Array.isArray(parsed.stockTrades)?parsed.stockTrades:[]).slice(-5000);
+    parsed.reports = (Array.isArray(parsed.reports)?parsed.reports:[]).map(r=>({id:r.id||crypto.randomUUID(),reporterId:r.reporterId||null,targetId:r.targetId||null,reason:String(r.reason||'other').slice(0,40),details:String(r.details||'').slice(0,500),createdAt:r.createdAt||new Date().toISOString()})).filter(r=>r.reporterId&&r.targetId).slice(-5000);
     parsed.maintenanceUntil ||= null;
     // v10: базовых подарков больше нет. Рынок полностью создаёт администратор.
     parsed.giftCatalog = parsed.giftCatalog.filter(g=>!g.seed).map(g=>({id:g.id||crypto.randomUUID(),key:g.key||g.id||crypto.randomUUID(),name:String(g.name||'Подарок'),price:Math.max(1,Math.trunc(Number(g.price)||1)),image:g.image||'',type:g.type==='nft'?'nft':'gift',totalSupply:Math.max(1,Math.trunc(Number(g.totalSupply)||1)),remaining:Math.max(0,Math.trunc(Number(g.remaining ?? g.totalSupply)||0)),createdAt:g.createdAt||new Date().toISOString(),releaseAt:g.releaseAt||null,createdBy:g.createdBy||null}));
@@ -149,7 +151,7 @@ function cleanUser(u,viewer=null){
   const canSeePhone = !u.hidePhone || viewer?.id===u.id || viewer?.isAdmin;
   return {id:u.id,phone:canSeePhone?u.phone:'',phoneHidden:!!u.hidePhone,username:u.username,avatarUrl:u.avatarUrl||'',bio:u.bio||'',isAdmin:!!u.isAdmin,verified:!!u.verified,online:!!u.online,createdAt:u.createdAt,strawberries:roundBerry(u.strawberries),featuredGift:giftSummary(u.featuredGiftId),blockedByMe:!!viewer?.blocked?.includes?.(u.id),premium:isPremium(u),premiumUntil:u.premiumUntil||null,stockWalletOpened:!!u.stockWalletOpened};
 }
-function adminUser(u){ return {...cleanUser(u,{isAdmin:true}),rootAdmin:isRootAdmin(u)}; }
+function adminUser(u){ return {...cleanUser(u,{isAdmin:true}),rootAdmin:isRootAdmin(u),reportCount:db.reports.filter(r=>r.targetId===u.id).length}; }
 function stockSummary(stock,viewer,{history=false}={}){
   const creator=db.users.find(u=>u.id===stock.creatorId);const stats=stockHourStats(stock);const result={
     id:stock.id,name:stock.name,avatarUrl:stock.avatarUrl||'',verified:!!stock.verified,creator:creator?cleanUser(creator,viewer):{id:null,username:'Удалён'},
@@ -293,6 +295,16 @@ app.post('/api/contacts',auth,writeRateLimit,(req,res)=>{
 app.delete('/api/contacts/:id',auth,(req,res)=>{ req.user.contacts=(req.user.contacts||[]).filter(id=>id!==req.params.id); saveDb(); res.json({ok:true}); });
 app.post('/api/users/:id/block',auth,(req,res)=>{ const peer=db.users.find(u=>u.id===req.params.id); if(!peer)return res.status(404).json({error:'Пользователь не найден'}); if(peer.id===req.user.id)return res.status(400).json({error:'Нельзя заблокировать себя'}); req.user.blocked||=[]; if(!req.user.blocked.includes(peer.id))req.user.blocked.push(peer.id); req.user.contacts=(req.user.contacts||[]).filter(id=>id!==peer.id); saveDb(); res.json({ok:true,blocked:true}); });
 app.delete('/api/users/:id/block',auth,(req,res)=>{ req.user.blocked=(req.user.blocked||[]).filter(id=>id!==req.params.id); saveDb(); res.json({ok:true,blocked:false}); });
+app.post('/api/users/:id/report',auth,writeRateLimit,(req,res)=>{
+  const target=db.users.find(u=>u.id===req.params.id);if(!target)return res.status(404).json({error:'Пользователь не найден'});if(target.id===req.user.id)return res.status(400).json({error:'Нельзя пожаловаться на себя'});
+  const allowed=new Set(['spam','abuse','scam','impersonation','other']);const reason=allowed.has(String(req.body.reason))?String(req.body.reason):'other';const details=String(req.body.details||'').trim().slice(0,500);
+  const since=Date.now()-24*60*60*1000;const duplicate=db.reports.find(r=>r.reporterId===req.user.id&&r.targetId===target.id&&new Date(r.createdAt).getTime()>=since);if(duplicate)return res.status(409).json({error:'Жалоба на этого пользователя уже отправлена. Администратор её увидит.'});
+  const report={id:crypto.randomUUID(),reporterId:req.user.id,targetId:target.id,reason,details,createdAt:new Date().toISOString()};db.reports.push(report);db.reports=db.reports.slice(-5000);saveDb();res.json({ok:true});
+});
+app.get('/api/admin/users/:id/reports',auth,adminOnly,(req,res)=>{
+  const target=db.users.find(u=>u.id===req.params.id);if(!target)return res.status(404).json({error:'Пользователь не найден'});
+  const reports=db.reports.filter(r=>r.targetId===target.id).slice().reverse().map(r=>({...r,reporter:cleanUser(db.users.find(u=>u.id===r.reporterId)||{id:null,username:'Удалён',phone:''},{isAdmin:true})}));res.json({target:adminUser(target),reports});
+});
 app.delete('/api/private/:id/messages',auth,(req,res)=>{ const peer=db.users.find(u=>u.id===req.params.id); if(!peer)return res.status(404).json({error:'Пользователь не найден'}); db.messages=db.messages.filter(m=>!((m.chatType||'global')==='private'&&((m.userId===req.user.id&&m.recipientId===peer.id)||(m.userId===peer.id&&m.recipientId===req.user.id)))); saveDb(); io.to(req.user.id).emit('private-chat-cleared',{peerId:peer.id}); io.to(peer.id).emit('private-chat-cleared',{peerId:req.user.id}); res.json({ok:true}); });
 
 function canSeeMessage(m,u){
@@ -544,8 +556,8 @@ app.post('/api/stocks',auth,upload.single('avatar'),(req,res)=>{
 });
 app.patch('/api/stocks/:id/avatar',auth,upload.single('avatar'),(req,res)=>{const stock=stockFor(req.params.id);if(!stock)return res.status(404).json({error:'Акция не найдена'});if(stock.creatorId!==req.user.id)return res.status(403).json({error:'Настройки доступны создателю акции'});if(!req.file)return res.status(400).json({error:'Выберите изображение'});const ext=path.extname(req.file.originalname||'').toLowerCase(),mime=String(req.file.mimetype||'').toLowerCase();if(!mime.startsWith('image/')&&!['.jpg','.jpeg','.png','.webp','.gif','.avif'].includes(ext)){fs.unlink(req.file.path,()=>{});return res.status(400).json({error:'Нужно изображение'});}stock.avatarUrl=`/uploads/${req.file.filename}`;saveDb();io.emit('stocks-updated');res.json({stock:stockSummary(stock,req.user,{history:true})})});
 app.delete('/api/stocks/:id',auth,(req,res)=>{const stock=stockFor(req.params.id);if(!stock)return res.status(404).json({error:'Акция не найдена'});if(stock.creatorId!==req.user.id&&!req.user.isAdmin)return res.status(403).json({error:'Недостаточно прав'});const refunded=deleteStockWithRefund(stock);saveDb();io.emit('stocks-updated');io.emit('balances-updated');res.json({ok:true,refunded})});
-app.post('/api/stocks/:id/buy',auth,writeRateLimit,(req,res)=>{const stock=stockFor(req.params.id);if(!stock)return res.status(404).json({error:'Акция не найдена'});if(!req.user.stockWalletOpened)return res.status(403).json({error:'Сначала откройте кошелёк акций'});if(stock.creatorId===req.user.id)return res.status(400).json({error:'Создатель не может покупать собственную акцию'});const qty=Math.trunc(Number(req.body.qty));if(!Number.isFinite(qty)||qty<1||qty>5000)return res.status(400).json({error:'Количество: от 1 до 5000'});const before=Math.max(0,Math.trunc(Number(stock.circulating)||0));if(before+qty>20000)return res.status(400).json({error:'Для этой акции достигнут лимит выпуска'});const cost=stockCurveCost(before,qty);req.user.strawberries=roundBerry(req.user.strawberries);if(req.user.strawberries+1e-9<cost)return res.status(400).json({error:`Не хватает клубничек: нужно ${cost}🍓`});req.user.strawberries=roundBerry(req.user.strawberries-cost);setStockHolding(req.user.id,stock.id,stockHolding(req.user.id,stock.id)+qty);stock.circulating=before+qty;recordStockPoint(stock);const trade={id:crypto.randomUUID(),stockId:stock.id,userId:req.user.id,type:'buy',qty,total:cost,priceBefore:Math.max(STOCK_BASE_PRICE,Math.round(STOCK_BASE_PRICE*Math.pow(STOCK_GROWTH,before)*10000)/10000),priceAfter:stockPrice(stock),createdAt:new Date().toISOString()};db.stockTrades.push(trade);db.stockTrades=db.stockTrades.slice(-5000);saveDb();io.emit('stocks-updated');io.emit('user-updated',cleanUser(req.user));res.json({stock:stockSummary(stock,req.user,{history:true}),holding:stockHolding(req.user.id,stock.id),balance:roundBerry(req.user.strawberries),trade})});
-app.post('/api/stocks/:id/sell',auth,writeRateLimit,(req,res)=>{const stock=stockFor(req.params.id);if(!stock)return res.status(404).json({error:'Акция не найдена'});if(!req.user.stockWalletOpened)return res.status(403).json({error:'Сначала откройте кошелёк акций'});const qty=Math.trunc(Number(req.body.qty)),owned=stockHolding(req.user.id,stock.id);if(!Number.isFinite(qty)||qty<1||qty>owned)return res.status(400).json({error:`Можно продать от 1 до ${owned}`});const before=Math.max(0,Math.trunc(Number(stock.circulating)||0));const start=Math.max(0,before-qty);const gross=stockCurveCost(start,qty);const payout=roundBerry(gross*STOCK_SELL_FACTOR);setStockHolding(req.user.id,stock.id,owned-qty);stock.circulating=start;req.user.strawberries=roundBerry((Number(req.user.strawberries)||0)+payout);recordStockPoint(stock);const trade={id:crypto.randomUUID(),stockId:stock.id,userId:req.user.id,type:'sell',qty,total:payout,priceBefore:Math.max(STOCK_BASE_PRICE,Math.round(STOCK_BASE_PRICE*Math.pow(STOCK_GROWTH,before)*10000)/10000),priceAfter:stockPrice(stock),createdAt:new Date().toISOString()};db.stockTrades.push(trade);db.stockTrades=db.stockTrades.slice(-5000);saveDb();io.emit('stocks-updated');io.emit('user-updated',cleanUser(req.user));res.json({stock:stockSummary(stock,req.user,{history:true}),holding:stockHolding(req.user.id,stock.id),balance:roundBerry(req.user.strawberries),trade})});
+app.post('/api/stocks/:id/buy',auth,writeRateLimit,(req,res)=>{const stock=stockFor(req.params.id);if(!stock)return res.status(404).json({error:'Акция не найдена'});if(!req.user.stockWalletOpened)return res.status(403).json({error:'Сначала откройте кошелёк акций'});if(stock.creatorId===req.user.id)return res.status(400).json({error:'Создатель не может покупать собственную акцию'});const qty=Math.trunc(Number(req.body.qty));if(!Number.isFinite(qty)||qty<1||qty>5000)return res.status(400).json({error:'Количество: от 1 до 5000'});const before=Math.max(0,Math.trunc(Number(stock.circulating)||0));if(before+qty>20000)return res.status(400).json({error:'Для этой акции достигнут лимит выпуска'});const unitPrice=stockPrice(stock);const cost=roundBerry(unitPrice*qty);req.user.strawberries=roundBerry(req.user.strawberries);if(req.user.strawberries+1e-9<cost)return res.status(400).json({error:`Не хватает клубничек: нужно ${cost}🍓`});req.user.strawberries=roundBerry(req.user.strawberries-cost);setStockHolding(req.user.id,stock.id,stockHolding(req.user.id,stock.id)+qty);stock.circulating=before+qty;recordStockPoint(stock);const trade={id:crypto.randomUUID(),stockId:stock.id,userId:req.user.id,type:'buy',qty,total:cost,priceBefore:unitPrice,priceAfter:stockPrice(stock),createdAt:new Date().toISOString()};db.stockTrades.push(trade);db.stockTrades=db.stockTrades.slice(-5000);saveDb();io.emit('stocks-updated');io.emit('user-updated',cleanUser(req.user));res.json({stock:stockSummary(stock,req.user,{history:true}),holding:stockHolding(req.user.id,stock.id),balance:roundBerry(req.user.strawberries),trade})});
+app.post('/api/stocks/:id/sell',auth,writeRateLimit,(req,res)=>{const stock=stockFor(req.params.id);if(!stock)return res.status(404).json({error:'Акция не найдена'});if(!req.user.stockWalletOpened)return res.status(403).json({error:'Сначала откройте кошелёк акций'});const qty=Math.trunc(Number(req.body.qty)),owned=stockHolding(req.user.id,stock.id);if(!Number.isFinite(qty)||qty<1||qty>owned)return res.status(400).json({error:`Можно продать от 1 до ${owned}`});const before=Math.max(0,Math.trunc(Number(stock.circulating)||0));const start=Math.max(0,before-qty);const unitAfter=Math.max(STOCK_BASE_PRICE,Math.round(STOCK_BASE_PRICE*Math.pow(STOCK_GROWTH,start)*10000)/10000);const payout=roundBerry(unitAfter*qty*STOCK_SELL_FACTOR);setStockHolding(req.user.id,stock.id,owned-qty);stock.circulating=start;req.user.strawberries=roundBerry((Number(req.user.strawberries)||0)+payout);recordStockPoint(stock);const trade={id:crypto.randomUUID(),stockId:stock.id,userId:req.user.id,type:'sell',qty,total:payout,priceBefore:Math.max(STOCK_BASE_PRICE,Math.round(STOCK_BASE_PRICE*Math.pow(STOCK_GROWTH,before)*10000)/10000),priceAfter:stockPrice(stock),createdAt:new Date().toISOString()};db.stockTrades.push(trade);db.stockTrades=db.stockTrades.slice(-5000);saveDb();io.emit('stocks-updated');io.emit('user-updated',cleanUser(req.user));res.json({stock:stockSummary(stock,req.user,{history:true}),holding:stockHolding(req.user.id,stock.id),balance:roundBerry(req.user.strawberries),trade})});
 app.get('/api/admin/stocks',auth,adminOnly,(req,res)=>res.json({stocks:db.stocks.map(s=>stockSummary(s,req.user,{history:true}))}));
 app.patch('/api/admin/stocks/:id/verified',auth,adminOnly,(req,res)=>{const stock=stockFor(req.params.id);if(!stock)return res.status(404).json({error:'Акция не найдена'});stock.verified=!!req.body.verified;saveDb();io.emit('stocks-updated');res.json({stock:stockSummary(stock,req.user,{history:true})})});
 app.delete('/api/admin/stocks/:id',auth,adminOnly,(req,res)=>{const stock=stockFor(req.params.id);if(!stock)return res.status(404).json({error:'Акция не найдена'});const refunded=deleteStockWithRefund(stock);saveDb();io.emit('stocks-updated');io.emit('balances-updated');res.json({ok:true,refunded})});
@@ -581,6 +593,7 @@ app.delete('/api/admin/users/:id',auth,adminOnly,(req,res)=>{
   db.gifts=db.gifts.filter(g=>g.receiverId!==u.id&&g.senderId!==u.id);
   db.purchases=db.purchases.filter(p=>p.userId!==u.id);
   db.premiumRequests=db.premiumRequests.filter(p=>p.userId!==u.id);
+  db.reports=db.reports.filter(r=>r.reporterId!==u.id&&r.targetId!==u.id);
   db.channels=db.channels.filter(c=>c.ownerId!==u.id).map(c=>({...c,members:(c.members||[]).filter(id=>id!==u.id)}));
   delete db.supportThreads[u.id];
   for(const x of db.users){x.contacts=(x.contacts||[]).filter(id=>id!==u.id);x.blocked=(x.blocked||[]).filter(id=>id!==u.id);}
@@ -657,7 +670,7 @@ io.on('connection',socket=>{
 });
 
 ensureAdmin().then(()=>server.listen(PORT,'0.0.0.0',()=>{
-  console.log(`205chating 0.1.8v running on port ${PORT}`);
+  console.log(`205chating 0.1.9v running on port ${PORT}`);
   if(IS_PROD && JWT_SECRET==='205chating-change-this-secret-in-production')console.warn('[security] Set JWT_SECRET in Railway variables before public launch.');
   if(IS_PROD)console.warn('[storage] data/db.json and uploads are local. Use persistent storage before scaling or accepting meaningful payment volume.');
 }));

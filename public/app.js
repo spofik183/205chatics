@@ -407,11 +407,16 @@ function setAdminTab(tab){
   if(tab==='gifts')loadAdminMarket();if(tab==='referrals')loadReferralsAdmin?.();if(tab==='purchases')loadPurchasesAdmin();if(tab==='premium')loadPremiumRequestsAdmin?.();
 }
 $$('[data-admin-tab]').forEach(b=>b.onclick=()=>setAdminTab(b.dataset.adminTab));
+function reportReasonLabel(reason){return ({spam:'Спам',abuse:'Оскорбления',scam:'Мошенничество',impersonation:'Выдаёт себя за другого',other:'Другое'})[reason]||'Другое'}
+async function openAdminUserReports(user){
+  try{const d=await api('/api/admin/users/'+encodeURIComponent(user.id)+'/reports');$('#adminReportsTitle').textContent=`Жалобы на @${user.username} · ${d.reports?.length||0}⚠`;const box=$('#adminReportsList');box.innerHTML='';(d.reports||[]).forEach(r=>{const el=document.createElement('div');el.className='admin-report-row';el.innerHTML=`<div><b>${reportReasonLabel(r.reason)}</b><span>От @${escapeHtml(r.reporter?.username||'Удалён')} · ${new Date(r.createdAt).toLocaleString()}</span></div>${r.details?`<p>${escapeHtml(r.details)}</p>`:'<p class="muted-report">Без комментария</p>'}`;box.appendChild(el)});if(!box.children.length)box.innerHTML='<div class="empty-state">Жалоб нет</div>';openModal('adminUserReportsModal')}catch(err){toast(err.message)}
+}
 function renderAdminUsers(list=adminUsersCache){
-  const tb=$('#usersTable');tb.innerHTML='';list.forEach(u=>{const tr=document.createElement('tr');tr.innerHTML=`<td><b>@${escapeHtml(u.username)}</b> ${badge(u)}${u.isAdmin?'<br><small>Admin</small>':''}</td><td>${escapeHtml(u.phone)}</td><td><span class="status"><span class="dot ${u.online?'on':''}"></span>${u.online?'онлайн':'оффлайн'}</span></td><td><button class="verify-btn ${u.verified?'on':''}" data-id="${u.id}" data-v="${u.verified}" ${u.rootAdmin?'disabled':''}>${u.verified?'✓':'+'}</button></td><td><button class="admin-role-btn ${u.isAdmin?'on':''}" data-admin-id="${u.id}" data-a="${u.isAdmin}" ${u.rootAdmin?'disabled':''}>${u.isAdmin?'Admin':'User'}</button></td><td><div class="berry-admin-cell"><b>${u.strawberries||0}🍓</b><input type="number" step="1" placeholder="любое количество" data-berry-input="${u.id}"><button class="verify-btn" data-berry-give="${u.id}">Выдать</button></div></td><td><button class="danger-button admin-delete-user" data-delete-user="${u.id}" ${u.rootAdmin?'disabled':''}>Удалить аккаунт</button></td>`;tb.appendChild(tr)});
+  const tb=$('#usersTable');tb.innerHTML='';list.forEach(u=>{const reports=Math.max(0,Number(u.reportCount)||0);const tr=document.createElement('tr');tr.innerHTML=`<td><b>@${escapeHtml(u.username)}</b> ${badge(u)}${u.isAdmin?'<br><small>Admin</small>':''}</td><td>${escapeHtml(u.phone)}</td><td><span class="status"><span class="dot ${u.online?'on':''}"></span>${u.online?'онлайн':'оффлайн'}</span></td><td><button class="verify-btn ${u.verified?'on':''}" data-id="${u.id}" data-v="${u.verified}" ${u.rootAdmin?'disabled':''}>${u.verified?'✓':'+'}</button></td><td><button class="admin-role-btn ${u.isAdmin?'on':''}" data-admin-id="${u.id}" data-a="${u.isAdmin}" ${u.rootAdmin?'disabled':''}>${u.isAdmin?'Admin':'User'}</button></td><td><div class="berry-admin-cell"><b>${u.strawberries||0}🍓</b><input type="number" step="1" placeholder="любое количество" data-berry-input="${u.id}"><button class="verify-btn" data-berry-give="${u.id}">Выдать</button></div></td><td><button class="report-count-badge ${reports?'has-reports':''}" data-report-user="${u.id}" type="button" ${reports?'':'disabled'}>${reports}⚠</button></td><td><button class="danger-button admin-delete-user" data-delete-user="${u.id}" ${u.rootAdmin?'disabled':''}>Удалить аккаунт</button></td>`;tb.appendChild(tr)});
   tb.querySelectorAll('.verify-btn[data-v]:not([disabled])').forEach(b=>b.onclick=async()=>{try{await api('/api/admin/users/'+b.dataset.id+'/verified',{method:'PATCH',body:JSON.stringify({verified:b.dataset.v!=='true'})});await openAdmin()}catch(err){toast(err.message)}});
   tb.querySelectorAll('.admin-role-btn:not([disabled])').forEach(b=>b.onclick=async()=>{try{await api('/api/admin/users/'+b.dataset.adminId+'/admin',{method:'PATCH',body:JSON.stringify({isAdmin:b.dataset.a!=='true'})});await openAdmin()}catch(err){toast(err.message)}});
   tb.querySelectorAll('[data-berry-give]').forEach(b=>b.onclick=async()=>{const id=b.dataset.berryGive;const input=tb.querySelector(`[data-berry-input="${CSS.escape(id)}"]`);const amount=Number(input.value);if(!Number.isFinite(amount)||!amount)return toast('Укажи количество');try{await api('/api/admin/users/'+id+'/strawberries',{method:'POST',body:JSON.stringify({amount})});toast('Баланс изменён');await openAdmin()}catch(err){toast(err.message)}});
+  tb.querySelectorAll('[data-report-user]:not([disabled])').forEach(b=>b.onclick=()=>{const u=adminUsersCache.find(x=>x.id===b.dataset.reportUser);if(u)openAdminUserReports(u)});
   tb.querySelectorAll('[data-delete-user]:not([disabled])').forEach(b=>b.onclick=async()=>{const id=b.dataset.deleteUser;const u=adminUsersCache.find(x=>x.id===id);if(!confirm(`Удалить аккаунт @${u?.username||'user'} навсегда? Сообщения и данные этого аккаунта тоже будут удалены.`))return;try{await api('/api/admin/users/'+id,{method:'DELETE'});toast('Аккаунт удалён');await openAdmin()}catch(err){toast(err.message)}});
 }
 async function openAdmin(){
@@ -913,6 +918,7 @@ openUserProfile=async function(user){
   $('#userProfileMenuBtn')?.classList.toggle('hidden',u?.id===me?.id);
   const menu=$('#userProfileMenu');
   menu?.classList.add('hidden');
+  const report=$('#reportUserBtn');if(report)report.classList.toggle('hidden',u?.id===me?.id);
   const block=$('#blockUserBtn');
   if(block){ block.textContent=u?.blockedByMe?'Разблокировать':'Заблокировать'; block.classList.toggle('is-unblock',!!u?.blockedByMe); }
 };
@@ -933,6 +939,13 @@ $('#deleteConversationBtn').onclick=async()=>{
   if(!confirm(`Удалить всю переписку с @${u.username}?`))return;
   try{await api('/api/private/'+encodeURIComponent(u.id)+'/messages',{method:'DELETE'});$('#userProfileMenu').classList.add('hidden');if(currentPeer===u.id)await loadMessages();toast('Переписка удалена')}catch(err){toast(err.message)}
 };
+$('#reportUserBtn')?.addEventListener('click',()=>{
+  const u=profileActionUser;if(!u)return;$('#userProfileMenu')?.classList.add('hidden');$('#reportUserTarget').textContent=`Жалоба на @${u.username}`;$('#reportReason').value='spam';$('#reportDetails').value='';openModal('reportUserModal');
+});
+$('#reportUserForm')?.addEventListener('submit',async e=>{
+  e.preventDefault();const u=profileActionUser;if(!u)return;const btn=e.currentTarget.querySelector('button[type="submit"]');setBusy?.(btn,true,'Отправляем…');
+  try{await api('/api/users/'+encodeURIComponent(u.id)+'/report',{method:'POST',body:JSON.stringify({reason:$('#reportReason').value,details:$('#reportDetails').value})});closeModal('reportUserModal');toast('Жалоба отправлена администратору')}catch(err){toast(err.message)}finally{setBusy?.(btn,false)}
+});
 $('#blockUserBtn').onclick=async()=>{
   const u=profileActionUser;if(!u)return;
   const unblock=!!u.blockedByMe;
@@ -1392,3 +1405,7 @@ const v17SetAdminTabBase=setAdminTab;setAdminTab=function(tab){v17SetAdminTabBas
 $('#promoOpenPremium').onclick=()=>{if(me)localStorage.setItem(`205premium-promo-${me.id}`,'1');closeModal('premiumPromo');openModal('premiumModal')};
 // Realtime channel refresh.
 const v17ConnectBase=connect;connect=function(){v17ConnectBase();socket?.on('channels-updated',()=>loadPremiumChannels())};
+
+
+// ========================= 205chating 0.1.9v — UX/report polish =========================
+$('#sideWallet')?.addEventListener('click',()=>{ $('#sideMenu')?.classList.add('hidden');$('#sidebar')?.classList.remove('mobile-open');openStockWallet?.(); });

@@ -293,3 +293,33 @@ html,body{width:100%;max-width:100%;overscroll-behavior:none}.app{width:100%;max
   .admin-stock-row{grid-template-columns:40px minmax(0,1fr)}.admin-stock-actions{grid-column:1/-1;display:grid;grid-template-columns:1fr 1fr}.admin-stock-actions button{width:100%}.admin-stock-row .stock-avatar{width:40px;height:40px}
 }
 @media(max-width:380px){.portfolio-summary{grid-template-columns:1fr}.portfolio-summary>div:last-child{grid-column:auto}.stock-card-head{grid-template-columns:40px minmax(0,1fr)}.stock-card-head .stock-avatar{width:40px;height:40px}}
+
+
+/* ========================= 0.1.9v — calm, minimal UI polish ========================= */
+:root{--radius:18px;--shadow:0 18px 50px rgba(0,0,0,.18)}
+button,input,textarea,select{transition:border-color .16s ease,background .16s ease,transform .12s ease,box-shadow .16s ease,opacity .16s ease}
+button:active:not(:disabled){transform:scale(.985)}button:disabled{opacity:.48;cursor:not-allowed}
+.auth-card,.modal-card,.stock-card,.setting-row,.composer,.stock-chart-card,.stock-wallet-gate{box-shadow:none}
+.sidebar{padding:12px;background:color-mix(in srgb,var(--panel) 96%,var(--bg));}.side-menu{border-radius:16px!important}.side-menu-item{min-height:44px}.wallet-menu-item{color:var(--text)}.wallet-menu-item span{font-weight:700}
+.search-box{border-radius:13px;background:color-mix(in srgb,var(--panel2) 92%,transparent)}
+.chat-item{border-radius:14px}.chat-item.active{background:color-mix(in srgb,var(--accent) 8%,var(--panel2))}
+.chat-head{backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px)}
+.composer{border-radius:18px;background:color-mix(in srgb,var(--panel) 96%,transparent)}
+.send-btn,.primary,.small-primary{color:#fff}.send-btn{border-radius:12px}
+.settings-list{gap:8px;border:0;overflow:visible}.setting-row{border:1px solid var(--line);border-radius:15px;background:var(--panel);padding:15px 16px}
+.setting-row:hover{border-color:color-mix(in srgb,var(--accent) 22%,var(--line))}
+.stock-market-grid{gap:12px}.stock-card{background:var(--panel);border-radius:18px;padding:14px}.stock-card:hover{background:var(--panel);box-shadow:0 10px 26px rgba(0,0,0,.08)}
+.stock-list-row,.portfolio-summary>div,.stock-chart-card{background:var(--panel);border-radius:15px}
+.stock-trade-box{grid-template-columns:minmax(110px,.7fr) minmax(180px,1fr) auto;align-items:end;padding:12px;border:1px solid var(--line);border-radius:16px;background:var(--panel);}
+.stock-trade-quote{min-height:42px;display:flex;flex-direction:column;justify-content:center;gap:3px;padding:0 4px}.stock-trade-quote span{font-size:10px;color:var(--muted)}.stock-trade-quote strong{font-size:15px;letter-spacing:-.01em}.stock-trade-actions{display:flex;gap:7px}.stock-trade-actions button{height:42px;min-width:118px}
+.profile-action-menu button{min-height:42px}.profile-action-menu #reportUserBtn{color:#e5a83d}
+.report-card select{height:43px;border:1px solid var(--line);border-radius:10px;background:var(--panel2);color:var(--text);padding:0 11px}.report-note{font-size:11px;color:var(--muted);line-height:1.45;padding:10px 12px;border-radius:11px;background:var(--panel2);border:1px solid var(--line)}
+.report-count-badge{border:1px solid var(--line);background:var(--panel2);color:var(--muted);border-radius:999px;padding:6px 9px;font-weight:850;white-space:nowrap}.report-count-badge.has-reports{border-color:rgba(229,168,61,.4);background:rgba(229,168,61,.09);color:#e5a83d;cursor:pointer}
+.admin-reports-list{display:grid;gap:8px}.admin-report-row{padding:12px;border:1px solid var(--line);border-radius:13px;background:var(--panel2)}.admin-report-row>div{display:flex;flex-direction:column;gap:3px}.admin-report-row span{font-size:10px;color:var(--muted)}.admin-report-row p{margin:8px 0 0;font-size:12px;line-height:1.45}.muted-report{color:var(--muted)}
+.version-pill{font-variant-numeric:tabular-nums}
+@media(max-width:760px){
+  .stock-trade-box{grid-template-columns:1fr!important;padding:10px}.stock-trade-actions{display:grid!important;grid-template-columns:1fr 1fr}.stock-trade-actions button{min-width:0;width:100%}
+  .setting-row{padding:13px 14px;border-radius:14px}.settings-list{gap:7px}.modal-card{border-radius:20px;padding:16px}.messages{padding-left:12px!important;padding-right:12px!important}.composer-area{padding-left:8px!important;padding-right:8px!important}
+  .admin-card{width:100%!important}.table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}.table-wrap table{min-width:920px}
+}
+@media(prefers-reduced-motion:reduce){*,*:before,*:after{scroll-behavior:auto!important;transition:none!important;animation:none!important}}

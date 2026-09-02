@@ -62,3 +62,10 @@ Premium promo redesign, channels for all users with settings/delete/contact pick
 - Цена основана на внутренней кривой спроса и клубничках; вывода в реальные деньги нет.
 - Создатель может менять аватар и удалять свою акцию; при удалении держателям возвращаются клубнички по текущей виртуальной цене.
 - В админке добавлена вкладка Акции с галочками и удалением.
+
+
+## 0.1.9v
+- Stock trade total is shown live for the selected quantity; purchases update immediately.
+- Stock wallet is promoted above Premium in the side menu.
+- User reports with admin-visible counters and report details.
+- Minimal UI/UX polish and mobile/table resilience.

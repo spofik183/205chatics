@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#101827">
   <meta name="description" content="205chating — быстрый мессенджер с личными чатами, подарками, Premium и виртуальным рынком акций.">
   <title>205chating</title>
-  <link rel="stylesheet" href="style.css?v=018">
+  <link rel="stylesheet" href="style.css?v=019">
 </head>
 <body>
 <div id="toast" class="toast"></div>
@@ -50,6 +50,7 @@
       <button id="sideAddContact" class="side-menu-item">＋ <span>Добавить контакт</span></button>
       <button id="sideSettings" class="side-menu-item">⚙ <span>Настройки</span></button>
       <button id="sideSupport" class="side-menu-item">? <span>Поддержка</span></button>
+      <button id="sideWallet" class="side-menu-item wallet-menu-item">◇ <span>Кошелёк акций</span></button>
       <button id="sidePremium" class="side-menu-item">👑 <span>Chatics Premium</span></button>
       <button id="sideStocks" class="side-menu-item">↗ <span>Рынок акций</span></button>
       <button id="sideAdmin" class="side-menu-item hidden">◇ <span>Панель администратора</span></button>
@@ -124,7 +125,7 @@
       <button id="openSupport" class="hidden" type="button"></button>
       <div class="setting-row berry-setting"><div><b>Баланс</b><span>Клубнички для подарков, NFT и виртуальных акций</span></div><div class="balance-actions"><div id="settingsBerryBalance" class="berry-balance">0🍓</div><button id="openBalance" class="small-primary">Пополнить</button></div></div>
       <div class="setting-row stock-wallet-setting"><div><b>Кошелёк акций</b><span id="stockWalletHint">Портфель и мои акции</span></div><div class="balance-actions"><span id="stockWalletStatus" class="wallet-state">Не открыт</span><button id="openStockWallet" class="small-primary">Открыть</button></div></div>
-      <div class="setting-row app-info-row"><div><b>205chating Beta</b><span>Мягкий запуск · сообщайте об ошибках через поддержку</span></div><span class="version-pill">0.1.8v</span></div>
+      <div class="setting-row app-info-row"><div><b>205chating Beta</b><span>Мягкий запуск · сообщайте об ошибках через поддержку</span></div><span class="version-pill">0.1.9v</span></div>
     </div>
   </div>
 </section>
@@ -170,7 +171,7 @@
   <div class="modal-head"><div><h2 id="stockDetailName">Акция</h2><p id="stockDetailCreator">—</p></div><button class="icon-btn modal-close" data-close="stockDetailModal">×</button></div>
   <div class="stock-detail-hero"><div id="stockDetailAvatar" class="stock-avatar large">↗</div><div><div id="stockDetailPrice" class="stock-detail-price">0,01🍓</div><div id="stockDetailGrowth" class="stock-growth flat">0% за час</div><span id="stockDetailOwned">У вас: 0</span></div></div>
   <div class="stock-chart-card"><div><b>Цена</b><span id="stockDetailForecast">Стабильно</span></div><canvas id="stockDetailChart" width="720" height="260"></canvas><small>Прогноз — ориентир по прошлой активности, а не гарантия.</small></div>
-  <div id="stockTradeBox" class="stock-trade-box"><label><span>Количество</span><input id="stockTradeQty" type="number" min="1" step="1" value="1"></label><div><button id="buyStockBtn" class="primary">Купить</button><button id="sellStockBtn" class="secondary">Продать</button></div></div>
+  <div id="stockTradeBox" class="stock-trade-box"><label><span>Количество</span><input id="stockTradeQty" type="number" min="1" max="5000" step="1" value="1" inputmode="numeric"></label><div id="stockTradeQuote" class="stock-trade-quote"><span>1 акция · <b id="stockTradeUnit">0,01🍓</b></span><strong id="stockTradeTotal">Итого: 0,01🍓</strong></div><div class="stock-trade-actions"><button id="buyStockBtn" class="primary" type="button">Купить</button><button id="sellStockBtn" class="secondary" type="button">Продать</button></div></div>
   <div id="stockOwnerTools" class="stock-owner-tools hidden"><b>Настройки вашей акции</b><label class="stock-avatar-upload"><span>Изменить аватарку</span><input id="stockOwnerAvatarInput" type="file" accept="image/*"></label><button id="deleteOwnStockBtn" class="danger-button">Удалить акцию</button></div>
 </div></div>
 
@@ -198,9 +199,17 @@
 
 <div id="userProfileModal" class="modal hidden"><div class="modal-card profile-card public-profile-card">
   <div class="modal-head"><div><h2>Профиль</h2><p>Пользователь 205chating</p></div><div class="public-profile-head-actions"><button id="userProfileMenuBtn" class="icon-btn profile-menu-trigger" type="button" title="Действия">☰</button><button class="icon-btn modal-close" data-close="userProfileModal">×</button></div></div>
-  <div id="userProfileMenu" class="profile-action-menu hidden"><button id="shareContactBtn" type="button">Поделиться контактом</button><button id="deleteConversationBtn" type="button">Удалить переписку</button><button id="blockUserBtn" class="danger-action" type="button">Заблокировать</button></div>
+  <div id="userProfileMenu" class="profile-action-menu hidden"><button id="shareContactBtn" type="button">Поделиться контактом</button><button id="deleteConversationBtn" type="button">Удалить переписку</button><button id="reportUserBtn" type="button">Пожаловаться</button><button id="blockUserBtn" class="danger-action" type="button">Заблокировать</button></div>
   <div class="profile-main"><div id="viewUserAvatar" class="avatar avatar-xl">U</div><div class="profile-id"><b id="viewUserName">@user</b><span id="viewUserPhone">+7...</span></div></div>
   <div class="public-profile-actions"><button id="writeUserBtn" class="primary">Написать</button><div class="profile-tabs public-profile-tabs"><button class="active" data-public-tab="main">Профиль</button><button data-public-tab="gifts">Подарки</button></div></div><div id="publicMainTab" class="profile-tab-panel"><div class="public-bio"><b>О себе</b><p id="viewUserBio">—</p></div><div id="publicContactActions" class="public-contact-actions"><button id="clearPrivateChat" class="hidden" type="button"></button><button id="deleteContact" class="danger-button">Удалить контакт</button></div></div><div id="publicGiftsTab" class="profile-tab-panel hidden"><div class="gift-profile-section public-gifts-section"><div class="section-title"><b>Подарки</b></div><div id="viewUserGifts" class="profile-gifts profile-gifts-grid"></div></div></div>
+</div></div>
+
+<div id="reportUserModal" class="modal hidden"><div class="modal-card small-card report-card">
+  <div class="modal-head"><div><h2>Пожаловаться</h2><p id="reportUserTarget">Пользователь</p></div><button class="icon-btn modal-close" data-close="reportUserModal">×</button></div>
+  <form id="reportUserForm" class="stack-form"><label><span>Причина</span><select id="reportReason" required><option value="spam">Спам</option><option value="abuse">Оскорбления</option><option value="scam">Мошенничество</option><option value="impersonation">Выдаёт себя за другого</option><option value="other">Другое</option></select></label><label><span>Комментарий <small>необязательно</small></span><textarea id="reportDetails" maxlength="500" rows="4" placeholder="Коротко опиши, что произошло"></textarea></label><div class="report-note">Жалоба будет видна только администраторам.</div><button class="primary wide" type="submit">Отправить жалобу</button></form>
+</div></div>
+<div id="adminUserReportsModal" class="modal hidden"><div class="modal-card small-card report-card">
+  <div class="modal-head"><div><h2 id="adminReportsTitle">Жалобы</h2><p>История жалоб на пользователя</p></div><button class="icon-btn modal-close" data-close="adminUserReportsModal">×</button></div><div id="adminReportsList" class="admin-reports-list"></div>
 </div></div>
 
 <div id="channelProfileModal" class="modal hidden"><div class="modal-card profile-card channel-profile-card">
@@ -218,7 +227,7 @@
     <div class="admin-actions"><button id="adminChannelBtn" class="secondary">205chat: настройки канала</button><button id="adminSupportBtn" class="secondary">Поддержка</button><button id="adminAuditBtn" class="secondary">Контакты</button><button id="refreshAdminBtn" class="secondary">Обновить список</button></div>
     <div class="maintenance-admin"><div><b>Технический перерыв</b><span>На время перерыва весь интерфейс будет закрыт экраном обслуживания.</span></div><div class="maintenance-admin-controls"><input id="maintenanceMinutes" type="number" min="1" step="1" placeholder="Минуты"><button id="startMaintenance" class="danger-button">Уйти на технический перерыв</button></div></div>
     <div class="admin-user-search"><span>⌕</span><input id="adminUserSearch" placeholder="Поиск по @username или номеру"></div>
-    <div class="table-wrap"><table><thead><tr><th>Пользователь</th><th>Телефон</th><th>Статус</th><th>Галочка</th><th>Роль</th><th>🍓 Баланс / выдать</th><th>Аккаунт</th></tr></thead><tbody id="usersTable"></tbody></table></div>
+    <div class="table-wrap"><table><thead><tr><th>Пользователь</th><th>Телефон</th><th>Статус</th><th>Галочка</th><th>Роль</th><th>🍓 Баланс / выдать</th><th>Жалобы</th><th>Аккаунт</th></tr></thead><tbody id="usersTable"></tbody></table></div>
   </div>
   <div id="adminGiftsTab" class="admin-tab-panel hidden">
     <div class="section-title"><div><b>Создание подарков и NFT</b><span>Изначально рынок пуст — все позиции создаёт администратор</span></div><button id="refreshMarketAdmin" class="text-btn">Обновить</button></div>
@@ -291,7 +300,7 @@
 <div id="channelSettingsModal" class="modal hidden"><div class="modal-card profile-card"><div class="modal-head"><div><h2>Настройки канала</h2><p>Профиль и участники</p></div><button class="icon-btn modal-close" data-close="channelSettingsModal">×</button></div><div class="channel-settings-main"><button id="customChannelAvatar" class="avatar avatar-xl">#</button><input id="customChannelAvatarInput" type="file" accept="image/*" hidden><div><b id="customChannelTitle">Канал</b><span id="customChannelMeta"></span></div></div><form id="channelSettingsForm" class="stack-form"><label><span>Название</span><input id="customChannelName" maxlength="60"></label><label><span>Описание</span><textarea id="customChannelDescription" maxlength="500" rows="4"></textarea></label><label><span>Тип</span><select id="customChannelPrivacy"><option value="public">Публичный</option><option value="private">Частный</option></select></label><label><span>Участники</span><div id="channelSettingsContacts" class="channel-contact-picker"></div></label><button class="primary wide" type="submit">Сохранить</button><button id="deleteChannelBtn" class="danger-button wide" type="button">Удалить канал</button></form></div></div>
 <div id="maintenanceOverlay" class="maintenance-overlay hidden"><div class="maintenance-copy"><h1>технический перерыв🔌</h1><p>скоро все заработает</p></div></div>
 <script src="/socket.io/socket.io.js"></script>
-<script src="app.js?v=018"></script>
-<script src="stocks.js?v=018"></script>
+<script src="app.js?v=019"></script>
+<script src="stocks.js?v=019"></script>
 </body>
 </html>

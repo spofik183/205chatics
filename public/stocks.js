@@ -1,4 +1,4 @@
-// ========================= 205chating 0.1.8v — virtual stocks =========================
+// ========================= 205chating 0.1.9v — virtual stocks =========================
 let stockMarket = [];
 let stockWallet = null;
 let selectedStock = null;
@@ -7,8 +7,7 @@ let stockWalletReturnToSettings = false;
 const stockFmt = n => {
   const v = Number(n) || 0;
   if(v >= 1000) return v.toLocaleString('ru-RU',{maximumFractionDigits:2});
-  if(v >= 1) return v.toLocaleString('ru-RU',{minimumFractionDigits:2,maximumFractionDigits:4});
-  return v.toLocaleString('ru-RU',{minimumFractionDigits:2,maximumFractionDigits:4});
+  return v.toLocaleString('ru-RU',{maximumFractionDigits:4});
 };
 const stockGrowthClass = n => Number(n)>0?'up':Number(n)<0?'down':'flat';
 const stockGrowthText = n => `${Number(n)>0?'+':''}${Number(n||0).toFixed(2).replace('.',',')}%`;
@@ -108,16 +107,30 @@ async function openStockDetail(id){
   const stock=stockMarket.find(s=>s.id===id)||(stockWallet?.holdings||[]).find(s=>s.id===id)||(stockWallet?.created||[]).find(s=>s.id===id);if(!stock)return;
   selectedStock=stock;renderStockDetail();openModal('stockDetailModal');
 }
+function currentTradeQty(){const q=Math.trunc(Number($('#stockTradeQty')?.value));return Number.isFinite(q)&&q>0?Math.min(5000,q):1}
+function updateStockTradeQuote(){
+  const s=selectedStock;if(!s)return;const qty=currentTradeQty(),unit=Math.max(.01,Number(s.price)||.01),total=Math.round(unit*qty*10000)/10000;
+  if($('#stockTradeUnit'))$('#stockTradeUnit').textContent=`${stockFmt(unit)}🍓`;
+  if($('#stockTradeTotal'))$('#stockTradeTotal').textContent=`Итого за ${qty}: ${stockFmt(total)}🍓`;
+  const buy=$('#buyStockBtn');if(buy&&Boolean(me?.stockWalletOpened||stockWallet?.opened))buy.textContent=`Купить · ${stockFmt(total)}🍓`;
+}
 function renderStockDetail(){
   const s=selectedStock;if(!s)return;$('#stockDetailName').innerHTML=`${escapeHtml(s.name)} ${stockVerify(s)}`;$('#stockDetailCreator').textContent=`Создатель: @${s.creator?.username||'user'}`;stockAvatar($('#stockDetailAvatar'),s);$('#stockDetailPrice').textContent=`${stockFmt(s.price)}🍓`;const g=$('#stockDetailGrowth');g.className=`stock-growth ${stockGrowthClass(s.growth1h)}`;g.textContent=`${stockGrowthText(s.growth1h)} за последний час`;$('#stockDetailOwned').textContent=`У вас: ${s.owned||0} шт.`;$('#stockDetailForecast').textContent=`${s.forecast} · объём ${s.volume1h||0}/ч`;drawStockDetailChart(s.history||[]);
   const owner=!!s.mine;$('#stockOwnerTools')?.classList.toggle('hidden',!owner);$('#stockTradeBox')?.classList.toggle('hidden',owner);
-  const opened=!!(stockWallet?.opened ?? me?.stockWalletOpened);const buy=$('#buyStockBtn'),sell=$('#sellStockBtn');if(buy){buy.textContent=opened?'Купить':'Открыть кошелёк';buy.disabled=false}if(sell){sell.disabled=!opened||!(s.owned>0)}
+  const opened=!!(me?.stockWalletOpened||stockWallet?.opened);const buy=$('#buyStockBtn'),sell=$('#sellStockBtn');if(buy){buy.textContent=opened?'Купить':'Открыть кошелёк';buy.disabled=false}if(sell){sell.disabled=!opened||!(s.owned>0)}updateStockTradeQuote();
 }
 async function tradeStock(type){
-  const s=selectedStock;if(!s)return;const opened=!!(stockWallet?.opened ?? me?.stockWalletOpened);if(!opened){closeModal('stockDetailModal');return openStockWallet()}
-  const qty=Math.trunc(Number($('#stockTradeQty')?.value));if(!Number.isFinite(qty)||qty<1)return toast('Укажи количество акций');
+  const s=selectedStock;if(!s)return;const opened=!!(me?.stockWalletOpened||stockWallet?.opened);if(!opened){closeModal('stockDetailModal');return openStockWallet()}
+  const qty=currentTradeQty();if(!Number.isFinite(qty)||qty<1)return toast('Укажи количество акций');
   const btn=type==='buy'?$('#buyStockBtn'):$('#sellStockBtn');setBusy?.(btn,true,type==='buy'?'Покупаем…':'Продаём…');
-  try{const d=await api(`/api/stocks/${encodeURIComponent(s.id)}/${type}`,{method:'POST',body:JSON.stringify({qty})});if(me){me.strawberries=d.balance;syncMeUI?.()}selectedStock=d.stock;toast(type==='buy'?`Куплено ${qty} акций`:`Продано ${qty} акций`);await Promise.all([loadStockMarket({silent:true}),loadStockWallet()]);renderStockDetail()}catch(e){toast(e.message)}finally{setBusy?.(btn,false)}
+  try{
+    const d=await api(`/api/stocks/${encodeURIComponent(s.id)}/${type}`,{method:'POST',body:JSON.stringify({qty})});
+    if(me){me.strawberries=d.balance;me.stockWalletOpened=true;syncMeUI?.()}
+    selectedStock=d.stock;selectedStock.owned=d.holding;const idx=stockMarket.findIndex(x=>x.id===d.stock.id);if(idx>=0)stockMarket[idx]=d.stock;else stockMarket.unshift(d.stock);
+    setBusy?.(btn,false);renderStockDetail();renderStockMarket();$('#stockMarketBalance') && ($('#stockMarketBalance').textContent=`${stockFmt(d.balance)}🍓`);$('#stockWalletBalance') && ($('#stockWalletBalance').textContent=`${stockFmt(d.balance)}🍓`);
+    toast(type==='buy'?`Куплено ${qty} · ${stockFmt(d.trade?.total)}🍓`:`Продано ${qty} · +${stockFmt(d.trade?.total)}🍓`);
+    Promise.allSettled([loadStockMarket({silent:true}),loadStockWallet()]).then(()=>{if(selectedStock?.id===d.stock.id)renderStockDetail()});
+  }catch(e){toast(e.message);setBusy?.(btn,false)}
 }
 function requestCreateStock(){
   if(!me?.premium){toast('Создание акций входит в Chatics Premium');return openModal('premiumModal')}
@@ -149,6 +162,8 @@ $('#createStockBtn')?.addEventListener('click',requestCreateStock);
 $('#createStockFromWallet')?.addEventListener('click',requestCreateStock);
 $('#stockCreateForm')?.addEventListener('submit',createStock);
 $('#buyStockBtn')?.addEventListener('click',()=>tradeStock('buy'));
+$('#stockTradeQty')?.addEventListener('input',updateStockTradeQuote);
+$('#stockTradeQty')?.addEventListener('change',updateStockTradeQuote);
 $('#sellStockBtn')?.addEventListener('click',()=>tradeStock('sell'));
 $('#stockOwnerAvatarInput')?.addEventListener('change',async()=>{const f=$('#stockOwnerAvatarInput').files[0],s=selectedStock;if(!f||!s?.mine)return;const fd=new FormData();fd.append('avatar',f);try{const d=await api(`/api/stocks/${encodeURIComponent(s.id)}/avatar`,{method:'PATCH',body:fd});selectedStock=d.stock;toast('Аватарка акции обновлена');await Promise.all([loadStockMarket({silent:true}),loadStockWallet()]);renderStockDetail()}catch(e){toast(e.message)}});
 $('#deleteOwnStockBtn')?.addEventListener('click',async()=>{const s=selectedStock;if(!s?.mine||!confirm(`Удалить акцию «${s.name}»? Владельцам вернутся клубнички по текущей виртуальной цене.`))return;try{await api(`/api/stocks/${encodeURIComponent(s.id)}`,{method:'DELETE'});closeModal('stockDetailModal');selectedStock=null;toast('Акция удалена');await Promise.all([loadStockMarket({silent:true}),loadStockWallet()])}catch(e){toast(e.message)}});
