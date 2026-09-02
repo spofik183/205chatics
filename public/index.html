@@ -4,9 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
   <meta name="theme-color" content="#101827">
-  <meta name="description" content="205chating — быстрый мессенджер с личными чатами, подарками и 205chat.">
+  <meta name="description" content="205chating — быстрый мессенджер с личными чатами, подарками, Premium и виртуальным рынком акций.">
   <title>205chating</title>
-  <link rel="stylesheet" href="style.css?v=0153">
+  <link rel="stylesheet" href="style.css?v=018">
 </head>
 <body>
 <div id="toast" class="toast"></div>
@@ -51,6 +51,7 @@
       <button id="sideSettings" class="side-menu-item">⚙ <span>Настройки</span></button>
       <button id="sideSupport" class="side-menu-item">? <span>Поддержка</span></button>
       <button id="sidePremium" class="side-menu-item">👑 <span>Chatics Premium</span></button>
+      <button id="sideStocks" class="side-menu-item">↗ <span>Рынок акций</span></button>
       <button id="sideAdmin" class="side-menu-item hidden">◇ <span>Панель администратора</span></button>
     </div>
 
@@ -61,12 +62,6 @@
       <div class="chat-item-copy"><b>205chat <span class="check orange-check">✓</span></b><span id="lastPreview" data-i18n="chat.global">Общий чат</span></div>
       <span class="unread-dot"></span>
     </button>
-
-    <div class="channels-head">
-      <span>Каналы</span>
-      <button id="createChannelBtn" class="icon-btn mini" title="Создать канал">＋</button>
-    </div>
-    <div id="channelsList" class="channels-list"></div>
 
     <div class="contacts-head">
       <span data-i18n="contacts.title">Личные сообщения</span>
@@ -127,8 +122,9 @@
       <div class="setting-row"><div><b data-i18n="settings.language">Язык</b><span>Language</span></div><div class="segmented"><button id="langRu">Русский</button><button id="langEn">English</button></div></div>
       <div class="setting-row"><div><b>Аккаунты</b><span>Добавить ещё один аккаунт</span></div><button id="settingsAddAccount" class="small-primary">+ Добавить аккаунт</button></div><div class="setting-row"><div><b>Номер телефона</b><span>Кто видит номер в вашем профиле</span></div><label class="privacy-switch"><input id="hidePhoneSetting" type="checkbox"><span>Скрыть номер</span></label></div>
       <button id="openSupport" class="hidden" type="button"></button>
-      <div class="setting-row berry-setting"><div><b>Баланс</b><span>Клубнички для подарков и NFT</span></div><div class="balance-actions"><div id="settingsBerryBalance" class="berry-balance">0🍓</div><button id="openBalance" class="small-primary">Пополнить</button></div></div>
-      <div class="setting-row app-info-row"><div><b>205chating Beta</b><span>Мягкий запуск · сообщайте об ошибках через поддержку</span></div><span class="version-pill">0.1.5v</span></div>
+      <div class="setting-row berry-setting"><div><b>Баланс</b><span>Клубнички для подарков, NFT и виртуальных акций</span></div><div class="balance-actions"><div id="settingsBerryBalance" class="berry-balance">0🍓</div><button id="openBalance" class="small-primary">Пополнить</button></div></div>
+      <div class="setting-row stock-wallet-setting"><div><b>Кошелёк акций</b><span id="stockWalletHint">Портфель и мои акции</span></div><div class="balance-actions"><span id="stockWalletStatus" class="wallet-state">Не открыт</span><button id="openStockWallet" class="small-primary">Открыть</button></div></div>
+      <div class="setting-row app-info-row"><div><b>205chating Beta</b><span>Мягкий запуск · сообщайте об ошибках через поддержку</span></div><span class="version-pill">0.1.8v</span></div>
     </div>
   </div>
 </section>
@@ -143,6 +139,40 @@
   <div class="settings-page-head"><button id="closeGiftMarket" class="icon-btn">←</button><div><h2>Рынок подарков</h2><p id="giftMarketPeer">Подарок другу</p></div><div class="market-balance" id="marketBalance">0🍓</div></div>
   <div class="settings-page-body gift-market-body"><div class="market-kind-toggle" role="tablist"><button class="active" data-market-kind="gift" type="button">Подарки</button><button data-market-kind="nft" type="button">NFT</button></div><div class="market-filter market-sort-row"><select id="marketSort"><option value="newest">Сначала новые</option><option value="price_desc">От дорогого к дешёвому</option><option value="price_asc">От дешёвого к дорогому</option><option value="upcoming">Ещё не вышли</option><option value="all">Все</option></select></div><div id="giftCatalog" class="market-grid"></div><div id="giftCompose" class="market-compose hidden"><button id="closeGiftCompose" class="market-compose-close">×</button><div id="selectedGiftPreview" class="selected-gift-preview"></div><label><span>Письмо <small><span id="giftLetterCount">0</span>/50</small></span><textarea id="giftLetter" maxlength="50" rows="3" placeholder="Напиши несколько слов…"></textarea></label><button id="sendGift" class="primary wide">Подарить</button></div></div>
 </section>
+
+<section id="stockMarketPage" class="settings-page hidden sub-page stock-market-page">
+  <div class="settings-page-head"><button id="closeStockMarket" class="icon-btn">←</button><div><h2>Рынок акций</h2><p>Виртуальные акции внутри 205chating</p></div><div id="stockMarketBalance" class="market-balance">0🍓</div></div>
+  <div class="settings-page-body stock-market-body">
+    <div class="stock-market-top"><div><b>Рынок</b><span>Цена меняется от спроса. Это игровая механика без вывода в реальные деньги.</span></div><button id="createStockBtn" class="small-primary">＋ Создать акцию</button></div>
+    <div class="stock-toolbar"><select id="stockSort"><option value="growth">Рост за час</option><option value="price_desc">Цена: выше</option><option value="price_asc">Цена: ниже</option><option value="newest">Сначала новые</option></select><button id="openWalletFromMarket" class="secondary">Кошелёк</button></div>
+    <div id="stockMarketGrid" class="stock-market-grid"></div>
+  </div>
+</section>
+
+<section id="stockWalletPage" class="settings-page hidden sub-page stock-wallet-page">
+  <div class="settings-page-head"><button id="closeStockWallet" class="icon-btn">←</button><div><h2>Кошелёк акций</h2><p>Портфель, покупки и ваши акции</p></div><div id="stockWalletBalance" class="market-balance">0🍓</div></div>
+  <div class="settings-page-body">
+    <div id="stockWalletGate" class="stock-wallet-gate"><div class="wallet-orb">↗</div><h3>Открой кошелёк акций</h3><p>После открытия здесь появятся купленные акции, их количество и стоимость. Кошелёк использует только клубнички 🍓 внутри 205chating.</p><button id="activateStockWallet" class="primary">Открыть кошелёк</button></div>
+    <div id="stockWalletContent" class="hidden">
+      <div class="stock-wallet-tabs"><button class="active" data-stock-wallet-tab="portfolio">Портфель</button><button data-stock-wallet-tab="mine">Мои акции</button></div>
+      <div id="stockPortfolioTab" class="stock-wallet-panel"><div id="stockPortfolioSummary" class="portfolio-summary"></div><div id="stockPortfolioList" class="stock-list"></div></div>
+      <div id="stockMineTab" class="stock-wallet-panel hidden"><div class="mine-stock-head"><span>Premium-пользователь может создать до 3 акций.</span><button id="createStockFromWallet" class="small-primary">＋ Создать</button></div><div id="myCreatedStocks" class="stock-list"></div></div>
+    </div>
+  </div>
+</section>
+
+<div id="stockCreateModal" class="modal hidden"><div class="modal-card small-card stock-create-card">
+  <div class="modal-head"><div><h2>Создать акцию</h2><p>Начальная цена — 0,01🍓</p></div><button class="icon-btn modal-close" data-close="stockCreateModal">×</button></div>
+  <form id="stockCreateForm" class="stack-form"><label><span>Название акции</span><input id="stockCreateName" maxlength="40" required placeholder="Например, Blueberry"></label><label><span>Аватарка акции</span><input id="stockCreateAvatar" type="file" accept="image/*" required></label><div class="stock-create-note">После создания акция сразу появится на рынке. Одновременно можно иметь максимум 3 свои акции.</div><button class="primary wide" type="submit">Выпустить акцию</button></form>
+</div></div>
+
+<div id="stockDetailModal" class="modal hidden"><div class="modal-card stock-detail-card">
+  <div class="modal-head"><div><h2 id="stockDetailName">Акция</h2><p id="stockDetailCreator">—</p></div><button class="icon-btn modal-close" data-close="stockDetailModal">×</button></div>
+  <div class="stock-detail-hero"><div id="stockDetailAvatar" class="stock-avatar large">↗</div><div><div id="stockDetailPrice" class="stock-detail-price">0,01🍓</div><div id="stockDetailGrowth" class="stock-growth flat">0% за час</div><span id="stockDetailOwned">У вас: 0</span></div></div>
+  <div class="stock-chart-card"><div><b>Цена</b><span id="stockDetailForecast">Стабильно</span></div><canvas id="stockDetailChart" width="720" height="260"></canvas><small>Прогноз — ориентир по прошлой активности, а не гарантия.</small></div>
+  <div id="stockTradeBox" class="stock-trade-box"><label><span>Количество</span><input id="stockTradeQty" type="number" min="1" step="1" value="1"></label><div><button id="buyStockBtn" class="primary">Купить</button><button id="sellStockBtn" class="secondary">Продать</button></div></div>
+  <div id="stockOwnerTools" class="stock-owner-tools hidden"><b>Настройки вашей акции</b><label class="stock-avatar-upload"><span>Изменить аватарку</span><input id="stockOwnerAvatarInput" type="file" accept="image/*"></label><button id="deleteOwnStockBtn" class="danger-button">Удалить акцию</button></div>
+</div></div>
 
 <div id="profileModal" class="modal hidden"><div class="modal-card profile-card">
   <div class="modal-head"><div><h2 data-i18n="profile.title">Профиль</h2><p data-i18n="profile.subtitle">Данные аккаунта</p></div><button class="icon-btn modal-close" data-close="profileModal">×</button></div>
@@ -182,7 +212,7 @@
 
 <div id="adminModal" class="modal hidden"><div class="modal-card admin-card">
   <div class="modal-head"><div><h2>Панель администратора</h2><p>Управление 205chating</p></div><button class="icon-btn modal-close" data-close="adminModal">×</button></div>
-  <div class="admin-tabs"><button class="active" data-admin-tab="users">Пользователи</button><button data-admin-tab="gifts">Подарки и NFT</button><button data-admin-tab="referrals">Реферальные ссылки</button><button data-admin-tab="purchases">Покупки 🍓</button><button data-admin-tab="premium">Premium</button><button data-admin-tab="analytics">Аналитика</button></div>
+  <div class="admin-tabs"><button class="active" data-admin-tab="users">Пользователи</button><button data-admin-tab="gifts">Подарки и NFT</button><button data-admin-tab="referrals">Реферальные ссылки</button><button data-admin-tab="purchases">Покупки 🍓</button><button data-admin-tab="premium">Premium</button><button data-admin-tab="stocks">Акции</button><button data-admin-tab="analytics">Аналитика</button></div>
   <div id="adminUsersTab" class="admin-tab-panel">
     <div class="notice">Пароли не отображаются: сервер хранит только защищённые bcrypt-хеши.</div>
     <div class="admin-actions"><button id="adminChannelBtn" class="secondary">205chat: настройки канала</button><button id="adminSupportBtn" class="secondary">Поддержка</button><button id="adminAuditBtn" class="secondary">Контакты</button><button id="refreshAdminBtn" class="secondary">Обновить список</button></div>
@@ -208,6 +238,10 @@
     <div class="section-title"><div><b>Chatics Premium 👑</b><span>Проверка заявок и выдача Premium.</span></div><button id="refreshPremiumRequests" class="text-btn">Обновить</button></div>
     <div id="premiumRequestList" class="purchase-list"></div>
   </div>
+  <div id="adminStocksTab" class="admin-tab-panel hidden">
+    <div class="section-title"><div><b>Акции</b><span>Все виртуальные акции и их создатели</span></div><button id="refreshAdminStocks" class="text-btn">Обновить</button></div>
+    <div id="adminStocksList" class="admin-stocks-list"></div>
+  </div>
 </div></div>
 
 <section id="adminAuditPage" class="settings-page hidden sub-page admin-audit-page">
@@ -222,7 +256,7 @@
   <div class="premium-features">
     <div><span class="premium-demo-berry">🍓</span><b>Особая отметка</b><small>Синяя контурная клубничка рядом с @username.</small></div>
     <div><span>📌</span><b>Закрепление сообщений</b><small>Закрепляй важные сообщения в своих чатах.</small></div>
-    <div><span>📣</span><b>Собственные каналы</b><small>Публичные или частные каналы. Писать может только создатель.</small></div>
+    <div><span>↗</span><b>Создание акций</b><small>Выпускай до 3 виртуальных акций и следи за спросом.</small></div>
     <div><span>📊</span><b>Опросы</b><small>Создавай опросы через кнопку + в строке сообщений.</small></div>
   </div>
   <div class="premium-plans"><button data-premium-plan="1"><b>1 месяц</b><span>139₽</span></button><button data-premium-plan="3"><b>3 месяца</b><span>319₽</span></button><button data-premium-plan="6"><b>6 месяцев</b><span>509₽</span></button></div>
@@ -230,7 +264,7 @@
 </div></div>
 
 <div id="premiumPromo" class="modal hidden"><div class="modal-card premium-promo-card">
-  <div class="premium-promo-icon premium-berry-logo">🍓</div><h2>Chatics Premium</h2><p class="premium-lead">Больше свободы и дополнительных возможностей в 205chating.</p><div class="premium-promo-list"><div><span>◆</span><b>Особая отметка</b><small>Синяя контурная клубничка возле username</small></div><div><span>◆</span><b>Закрепление сообщений</b><small>Сохраняй важное сверху чата</small></div><div><span>◆</span><b>Каналы</b><small>Создавай и настраивай свои каналы</small></div><div><span>◆</span><b>Опросы</b><small>Голосования прямо в сообщениях</small></div></div><div class="premium-promo-actions"><button id="promoOpenPremium" class="premium-connect wide">Подключить за 139₽ в месяц</button><button id="promoLater" class="secondary wide">Не сейчас</button></div>
+  <div class="premium-promo-icon premium-berry-logo">🍓</div><h2>Chatics Premium</h2><p class="premium-lead">Больше свободы и дополнительных возможностей в 205chating.</p><div class="premium-promo-list"><div><span>◆</span><b>Особая отметка</b><small>Синяя контурная клубничка возле username</small></div><div><span>◆</span><b>Закрепление сообщений</b><small>Сохраняй важное сверху чата</small></div><div><span>◆</span><b>Акции</b><small>Создавай до 3 виртуальных акций и следи за их ростом</small></div><div><span>◆</span><b>Опросы</b><small>Голосования прямо в сообщениях</small></div></div><div class="premium-promo-actions"><button id="promoOpenPremium" class="premium-connect wide">Подключить за 139₽ в месяц</button><button id="promoLater" class="secondary wide">Не сейчас</button></div>
 </div></div>
 
 <div id="pollModal" class="modal hidden"><div class="modal-card small-card">
@@ -257,6 +291,7 @@
 <div id="channelSettingsModal" class="modal hidden"><div class="modal-card profile-card"><div class="modal-head"><div><h2>Настройки канала</h2><p>Профиль и участники</p></div><button class="icon-btn modal-close" data-close="channelSettingsModal">×</button></div><div class="channel-settings-main"><button id="customChannelAvatar" class="avatar avatar-xl">#</button><input id="customChannelAvatarInput" type="file" accept="image/*" hidden><div><b id="customChannelTitle">Канал</b><span id="customChannelMeta"></span></div></div><form id="channelSettingsForm" class="stack-form"><label><span>Название</span><input id="customChannelName" maxlength="60"></label><label><span>Описание</span><textarea id="customChannelDescription" maxlength="500" rows="4"></textarea></label><label><span>Тип</span><select id="customChannelPrivacy"><option value="public">Публичный</option><option value="private">Частный</option></select></label><label><span>Участники</span><div id="channelSettingsContacts" class="channel-contact-picker"></div></label><button class="primary wide" type="submit">Сохранить</button><button id="deleteChannelBtn" class="danger-button wide" type="button">Удалить канал</button></form></div></div>
 <div id="maintenanceOverlay" class="maintenance-overlay hidden"><div class="maintenance-copy"><h1>технический перерыв🔌</h1><p>скоро все заработает</p></div></div>
 <script src="/socket.io/socket.io.js"></script>
-<script src="app.js?v=017"></script>
+<script src="app.js?v=018"></script>
+<script src="stocks.js?v=018"></script>
 </body>
 </html>
