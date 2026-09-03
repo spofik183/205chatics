@@ -1407,5 +1407,5 @@ $('#promoOpenPremium').onclick=()=>{if(me)localStorage.setItem(`205premium-promo
 const v17ConnectBase=connect;connect=function(){v17ConnectBase();socket?.on('channels-updated',()=>loadPremiumChannels())};
 
 
-// ========================= 205chating 0.1.9v — UX/report polish =========================
+// ========================= 205chating 0.2.0v — UX/report polish =========================
 $('#sideWallet')?.addEventListener('click',()=>{ $('#sideMenu')?.classList.add('hidden');$('#sidebar')?.classList.remove('mobile-open');openStockWallet?.(); });

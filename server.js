@@ -25,7 +25,7 @@ const PURCHASE_PACKAGES = [
   { id:'s750', berries:750, rub:239 }
 ];
 const PAYMENT_PHONE = '+79811292091';
-const APP_VERSION = '0.1.9v';
+const APP_VERSION = '0.2.0v';
 const IS_PROD = process.env.NODE_ENV === 'production';
 
 app.disable('x-powered-by');
@@ -60,7 +60,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 function defaultDb(){
   return {
     users: [], messages: [], gifts: [], purchases: [], supportThreads: {},
-    giftCatalog: [], referrals: [], premiumRequests: [], channels: [], stocks: [], stockHoldings: {}, stockTrades: [], reports: [], maintenanceUntil: null,
+    giftCatalog: [], referrals: [], premiumRequests: [], channels: [], stocks: [], stockHoldings: {}, stockTrades: [], stockPricingVersion: 2, reports: [], maintenanceUntil: null,
     channel: { name:'205chat', avatarUrl:'', description:'Общий чат 205chating', verified:true }
   };
 }
@@ -86,6 +86,15 @@ function loadDb(){
       verified:!!st.verified, circulating:Math.max(0,Math.trunc(Number(st.circulating)||0)), createdAt:st.createdAt||new Date().toISOString(),
       priceHistory:Array.isArray(st.priceHistory)&&st.priceHistory.length?st.priceHistory.map(x=>({at:x.at||new Date().toISOString(),price:Math.max(.01,Number(x.price)||.01)})).slice(-240):[{at:new Date().toISOString(),price:.01}]
     })).filter(st=>st.creatorId&&st.name);
+    // 0.2.0v pricing migration: old exponential history would otherwise show a fake crash.
+    if(parsed.stockPricingVersion!==2){
+      const now=new Date().toISOString();
+      for(const st of parsed.stocks){
+        const price=Math.max(.01,Math.round((.01*(1+.0035*Math.sqrt(Math.max(0,Number(st.circulating)||0))))*10000)/10000);
+        st.priceHistory=[{at:now,price}];
+      }
+      parsed.stockPricingVersion=2;
+    }
     if(!parsed.stockHoldings || typeof parsed.stockHoldings!=='object' || Array.isArray(parsed.stockHoldings))parsed.stockHoldings={};
     parsed.stockTrades = (Array.isArray(parsed.stockTrades)?parsed.stockTrades:[]).slice(-5000);
     parsed.reports = (Array.isArray(parsed.reports)?parsed.reports:[]).map(r=>({id:r.id||crypto.randomUUID(),reporterId:r.reporterId||null,targetId:r.targetId||null,reason:String(r.reason||'other').slice(0,40),details:String(r.details||'').slice(0,500),createdAt:r.createdAt||new Date().toISOString()})).filter(r=>r.reporterId&&r.targetId).slice(-5000);
@@ -130,13 +139,22 @@ const premiumPlan = months => ({1:139,3:319,6:509}[Number(months)]||null);
 const channelFor = id => db.channels.find(c=>c.id===id)||null;
 function canAccessChannel(c,u){return !!c&&(c.isPublic||c.ownerId===u.id||(c.members||[]).includes(u.id));}
 const STOCK_BASE_PRICE = 0.01;
-const STOCK_GROWTH = 1.004;
-const STOCK_SELL_FACTOR = 0.98;
+// 0.2.0v: deliberately gentle demand curve. Buying still moves the market,
+// but one large order no longer makes the price explode.
+const STOCK_DEMAND_SLOPE = 0.0035;
+const STOCK_SELL_FACTOR = 0.985;
 const STOCK_MAX_CREATED = 3;
 const roundBerry = n => Math.max(0,Math.round((Number(n)||0)*10000)/10000);
 const stockFor = id => db.stocks.find(s=>s.id===id)||null;
-function stockPrice(stock){return Math.max(STOCK_BASE_PRICE,Math.round(STOCK_BASE_PRICE*Math.pow(STOCK_GROWTH,Math.max(0,Number(stock?.circulating)||0))*10000)/10000)}
-function stockCurveCost(start,qty){start=Math.max(0,Math.trunc(Number(start)||0));qty=Math.max(0,Math.trunc(Number(qty)||0));if(!qty)return 0;const raw=STOCK_BASE_PRICE*Math.pow(STOCK_GROWTH,start)*(Math.pow(STOCK_GROWTH,qty)-1)/(STOCK_GROWTH-1);return roundBerry(raw)}
+function stockPriceAtCirculating(circulating){
+  const c=Math.max(0,Number(circulating)||0);
+  return Math.max(STOCK_BASE_PRICE,roundBerry(STOCK_BASE_PRICE*(1+STOCK_DEMAND_SLOPE*Math.sqrt(c))));
+}
+function stockPrice(stock){return stockPriceAtCirculating(stock?.circulating)}
+function stockCurveCost(start,qty){
+  start=Math.max(0,Math.trunc(Number(start)||0));qty=Math.max(0,Math.trunc(Number(qty)||0));
+  return roundBerry(stockPriceAtCirculating(start)*qty);
+}
 function stockHolding(userId,stockId){return Math.max(0,Math.trunc(Number(db.stockHoldings?.[userId]?.[stockId])||0))}
 function setStockHolding(userId,stockId,qty){db.stockHoldings[userId] ||= {};qty=Math.max(0,Math.trunc(Number(qty)||0));if(qty)db.stockHoldings[userId][stockId]=qty;else delete db.stockHoldings[userId][stockId]}
 function recordStockPoint(stock){stock.priceHistory ||= [];const price=stockPrice(stock);const last=stock.priceHistory[stock.priceHistory.length-1];if(!last||last.price!==price||Date.now()-new Date(last.at).getTime()>300000)stock.priceHistory.push({at:new Date().toISOString(),price});stock.priceHistory=stock.priceHistory.slice(-240)}
@@ -541,9 +559,27 @@ app.get('/api/admin/analytics',auth,adminOnly,(req,res)=>{const now=Date.now(),d
 app.get('/api/stocks/market',auth,(req,res)=>res.json({stocks:db.stocks.map(s=>stockSummary(s,req.user,{history:true})),balance:roundBerry(req.user.strawberries),walletOpened:!!req.user.stockWalletOpened,basePrice:STOCK_BASE_PRICE}));
 app.get('/api/stocks/wallet',auth,(req,res)=>{
   const portfolio=db.stockHoldings[req.user.id]||{};
-  const holdings=Object.entries(portfolio).map(([id,qty])=>{const s=stockFor(id);return s?{...stockSummary(s,req.user,{history:true}),qty:Math.max(0,Math.trunc(Number(qty)||0)),value:roundBerry(stockPrice(s)*Math.max(0,Math.trunc(Number(qty)||0)))}:null}).filter(Boolean);
+  const userTrades=(db.stockTrades||[]).filter(t=>t.userId===req.user.id).sort((a,b)=>new Date(a.createdAt)-new Date(b.createdAt));
+  function positionBasis(stockId){
+    let qty=0,basis=0;
+    for(const t of userTrades){
+      if(t.stockId!==stockId)continue;
+      const q=Math.max(0,Math.trunc(Number(t.qty)||0)),total=Math.max(0,Number(t.total)||0);
+      if(t.type==='buy'){qty+=q;basis+=total;}
+      else if(t.type==='sell'&&qty>0){const sold=Math.min(q,qty);basis*=Math.max(0,(qty-sold)/qty);qty-=sold;}
+    }
+    return {qty,basis:roundBerry(basis),avgPrice:qty?roundBerry(basis/qty):0};
+  }
+  const holdings=Object.entries(portfolio).map(([id,qtyRaw])=>{
+    const st=stockFor(id);if(!st)return null;
+    const qty=Math.max(0,Math.trunc(Number(qtyRaw)||0)),value=roundBerry(stockPrice(st)*qty),pos=positionBasis(id);
+    const basis=pos.qty===qty?pos.basis:roundBerry((pos.avgPrice||stockPrice(st))*qty);
+    const pnl=roundBerry(value-basis),pnlPct=basis?Math.round((pnl/basis)*10000)/100:0;
+    return {...stockSummary(st,req.user,{history:true}),qty,value,basis,avgPrice:qty?roundBerry(basis/qty):0,pnl,pnlPct};
+  }).filter(Boolean);
   const created=db.stocks.filter(s=>s.creatorId===req.user.id).map(s=>stockSummary(s,req.user,{history:true}));
-  res.json({opened:!!req.user.stockWalletOpened,balance:roundBerry(req.user.strawberries),holdings,created,maxCreated:STOCK_MAX_CREATED});
+  const recentTrades=[...userTrades].reverse().slice(0,8).map(t=>{const st=stockFor(t.stockId);return {...t,stock:st?{id:st.id,name:st.name,avatarUrl:st.avatarUrl||''}:null};});
+  res.json({opened:!!req.user.stockWalletOpened,balance:roundBerry(req.user.strawberries),holdings,created,recentTrades,maxCreated:STOCK_MAX_CREATED});
 });
 app.post('/api/stocks/wallet/open',auth,(req,res)=>{req.user.stockWalletOpened=true;saveDb();res.json({opened:true,user:cleanUser(req.user,req.user)});});
 app.post('/api/stocks',auth,upload.single('avatar'),(req,res)=>{
@@ -557,7 +593,7 @@ app.post('/api/stocks',auth,upload.single('avatar'),(req,res)=>{
 app.patch('/api/stocks/:id/avatar',auth,upload.single('avatar'),(req,res)=>{const stock=stockFor(req.params.id);if(!stock)return res.status(404).json({error:'Акция не найдена'});if(stock.creatorId!==req.user.id)return res.status(403).json({error:'Настройки доступны создателю акции'});if(!req.file)return res.status(400).json({error:'Выберите изображение'});const ext=path.extname(req.file.originalname||'').toLowerCase(),mime=String(req.file.mimetype||'').toLowerCase();if(!mime.startsWith('image/')&&!['.jpg','.jpeg','.png','.webp','.gif','.avif'].includes(ext)){fs.unlink(req.file.path,()=>{});return res.status(400).json({error:'Нужно изображение'});}stock.avatarUrl=`/uploads/${req.file.filename}`;saveDb();io.emit('stocks-updated');res.json({stock:stockSummary(stock,req.user,{history:true})})});
 app.delete('/api/stocks/:id',auth,(req,res)=>{const stock=stockFor(req.params.id);if(!stock)return res.status(404).json({error:'Акция не найдена'});if(stock.creatorId!==req.user.id&&!req.user.isAdmin)return res.status(403).json({error:'Недостаточно прав'});const refunded=deleteStockWithRefund(stock);saveDb();io.emit('stocks-updated');io.emit('balances-updated');res.json({ok:true,refunded})});
 app.post('/api/stocks/:id/buy',auth,writeRateLimit,(req,res)=>{const stock=stockFor(req.params.id);if(!stock)return res.status(404).json({error:'Акция не найдена'});if(!req.user.stockWalletOpened)return res.status(403).json({error:'Сначала откройте кошелёк акций'});if(stock.creatorId===req.user.id)return res.status(400).json({error:'Создатель не может покупать собственную акцию'});const qty=Math.trunc(Number(req.body.qty));if(!Number.isFinite(qty)||qty<1||qty>5000)return res.status(400).json({error:'Количество: от 1 до 5000'});const before=Math.max(0,Math.trunc(Number(stock.circulating)||0));if(before+qty>20000)return res.status(400).json({error:'Для этой акции достигнут лимит выпуска'});const unitPrice=stockPrice(stock);const cost=roundBerry(unitPrice*qty);req.user.strawberries=roundBerry(req.user.strawberries);if(req.user.strawberries+1e-9<cost)return res.status(400).json({error:`Не хватает клубничек: нужно ${cost}🍓`});req.user.strawberries=roundBerry(req.user.strawberries-cost);setStockHolding(req.user.id,stock.id,stockHolding(req.user.id,stock.id)+qty);stock.circulating=before+qty;recordStockPoint(stock);const trade={id:crypto.randomUUID(),stockId:stock.id,userId:req.user.id,type:'buy',qty,total:cost,priceBefore:unitPrice,priceAfter:stockPrice(stock),createdAt:new Date().toISOString()};db.stockTrades.push(trade);db.stockTrades=db.stockTrades.slice(-5000);saveDb();io.emit('stocks-updated');io.emit('user-updated',cleanUser(req.user));res.json({stock:stockSummary(stock,req.user,{history:true}),holding:stockHolding(req.user.id,stock.id),balance:roundBerry(req.user.strawberries),trade})});
-app.post('/api/stocks/:id/sell',auth,writeRateLimit,(req,res)=>{const stock=stockFor(req.params.id);if(!stock)return res.status(404).json({error:'Акция не найдена'});if(!req.user.stockWalletOpened)return res.status(403).json({error:'Сначала откройте кошелёк акций'});const qty=Math.trunc(Number(req.body.qty)),owned=stockHolding(req.user.id,stock.id);if(!Number.isFinite(qty)||qty<1||qty>owned)return res.status(400).json({error:`Можно продать от 1 до ${owned}`});const before=Math.max(0,Math.trunc(Number(stock.circulating)||0));const start=Math.max(0,before-qty);const unitAfter=Math.max(STOCK_BASE_PRICE,Math.round(STOCK_BASE_PRICE*Math.pow(STOCK_GROWTH,start)*10000)/10000);const payout=roundBerry(unitAfter*qty*STOCK_SELL_FACTOR);setStockHolding(req.user.id,stock.id,owned-qty);stock.circulating=start;req.user.strawberries=roundBerry((Number(req.user.strawberries)||0)+payout);recordStockPoint(stock);const trade={id:crypto.randomUUID(),stockId:stock.id,userId:req.user.id,type:'sell',qty,total:payout,priceBefore:Math.max(STOCK_BASE_PRICE,Math.round(STOCK_BASE_PRICE*Math.pow(STOCK_GROWTH,before)*10000)/10000),priceAfter:stockPrice(stock),createdAt:new Date().toISOString()};db.stockTrades.push(trade);db.stockTrades=db.stockTrades.slice(-5000);saveDb();io.emit('stocks-updated');io.emit('user-updated',cleanUser(req.user));res.json({stock:stockSummary(stock,req.user,{history:true}),holding:stockHolding(req.user.id,stock.id),balance:roundBerry(req.user.strawberries),trade})});
+app.post('/api/stocks/:id/sell',auth,writeRateLimit,(req,res)=>{const stock=stockFor(req.params.id);if(!stock)return res.status(404).json({error:'Акция не найдена'});if(!req.user.stockWalletOpened)return res.status(403).json({error:'Сначала откройте кошелёк акций'});const qty=Math.trunc(Number(req.body.qty)),owned=stockHolding(req.user.id,stock.id);if(!Number.isFinite(qty)||qty<1||qty>owned)return res.status(400).json({error:`Можно продать от 1 до ${owned}`});const before=Math.max(0,Math.trunc(Number(stock.circulating)||0));const start=Math.max(0,before-qty);const unitAfter=stockPriceAtCirculating(start);const payout=roundBerry(unitAfter*qty*STOCK_SELL_FACTOR);setStockHolding(req.user.id,stock.id,owned-qty);stock.circulating=start;req.user.strawberries=roundBerry((Number(req.user.strawberries)||0)+payout);recordStockPoint(stock);const trade={id:crypto.randomUUID(),stockId:stock.id,userId:req.user.id,type:'sell',qty,total:payout,priceBefore:stockPriceAtCirculating(before),priceAfter:stockPrice(stock),createdAt:new Date().toISOString()};db.stockTrades.push(trade);db.stockTrades=db.stockTrades.slice(-5000);saveDb();io.emit('stocks-updated');io.emit('user-updated',cleanUser(req.user));res.json({stock:stockSummary(stock,req.user,{history:true}),holding:stockHolding(req.user.id,stock.id),balance:roundBerry(req.user.strawberries),trade})});
 app.get('/api/admin/stocks',auth,adminOnly,(req,res)=>res.json({stocks:db.stocks.map(s=>stockSummary(s,req.user,{history:true}))}));
 app.patch('/api/admin/stocks/:id/verified',auth,adminOnly,(req,res)=>{const stock=stockFor(req.params.id);if(!stock)return res.status(404).json({error:'Акция не найдена'});stock.verified=!!req.body.verified;saveDb();io.emit('stocks-updated');res.json({stock:stockSummary(stock,req.user,{history:true})})});
 app.delete('/api/admin/stocks/:id',auth,adminOnly,(req,res)=>{const stock=stockFor(req.params.id);if(!stock)return res.status(404).json({error:'Акция не найдена'});const refunded=deleteStockWithRefund(stock);saveDb();io.emit('stocks-updated');io.emit('balances-updated');res.json({ok:true,refunded})});
@@ -670,7 +706,7 @@ io.on('connection',socket=>{
 });
 
 ensureAdmin().then(()=>server.listen(PORT,'0.0.0.0',()=>{
-  console.log(`205chating 0.1.9v running on port ${PORT}`);
+  console.log(`205chating 0.2.0v running on port ${PORT}`);
   if(IS_PROD && JWT_SECRET==='205chating-change-this-secret-in-production')console.warn('[security] Set JWT_SECRET in Railway variables before public launch.');
   if(IS_PROD)console.warn('[storage] data/db.json and uploads are local. Use persistent storage before scaling or accepting meaningful payment volume.');
 }));

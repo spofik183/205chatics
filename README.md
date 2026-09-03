@@ -69,3 +69,12 @@ Premium promo redesign, channels for all users with settings/delete/contact pick
 - Stock wallet is promoted above Premium in the side menu.
 - User reports with admin-visible counters and report details.
 - Minimal UI/UX polish and mobile/table resilience.
+
+
+## 0.2.0v
+- Рынок акций перенесён выше Premium в боковом меню.
+- Быстрый кошелёк рядом с кнопкой меню.
+- Цена акций растёт значительно плавнее по корневой кривой спроса.
+- Создание и торговля акциями всегда открываются поверх остальных экранов.
+- Кошелёк показывает стоимость портфеля, результат, среднюю цену позиции и последние операции.
+- Дополнительная минималистичная полировка UI рынка/кошелька и мобильных состояний.

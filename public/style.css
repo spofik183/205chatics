@@ -323,3 +323,58 @@ button:active:not(:disabled){transform:scale(.985)}button:disabled{opacity:.48;c
   .admin-card{width:100%!important}.table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}.table-wrap table{min-width:920px}
 }
 @media(prefers-reduced-motion:reduce){*,*:before,*:after{scroll-behavior:auto!important;transition:none!important;animation:none!important}}
+
+
+/* ========================= 0.2.0v — stocks/wallet refinement ========================= */
+.compact-top{justify-content:space-between}
+.sidebar-wallet-quick{width:42px;height:42px;display:grid;place-items:center;border:1px solid transparent;background:transparent;color:var(--muted);border-radius:12px;cursor:pointer}
+.sidebar-wallet-quick:hover{background:var(--panel2);color:var(--text);border-color:var(--line)}
+.sidebar-wallet-quick svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.stocks-menu-item span{font-weight:750}
+.stock-market-page,.stock-wallet-page{background:color-mix(in srgb,var(--bg) 97%,var(--panel))}
+.stock-market-page .settings-page-head,.stock-wallet-page .settings-page-head{background:color-mix(in srgb,var(--panel) 94%,transparent);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px)}
+.stock-market-body,.stock-wallet-body{width:min(900px,calc(100% - 32px))}
+.stock-market-top{border:1px solid var(--line);border-radius:18px;background:var(--panel);padding:16px 18px}
+.stock-market-top b{font-size:15px}.stock-market-top span{max-width:610px;line-height:1.45}
+.stock-toolbar{margin:14px 0 12px}.stock-toolbar select,.stock-toolbar .secondary{height:40px;border-radius:12px}
+.stock-card{border:1px solid var(--line);overflow:hidden;position:relative}
+.stock-card:after{content:"";position:absolute;inset:auto 14px 0;height:1px;background:linear-gradient(90deg,transparent,color-mix(in srgb,var(--accent) 32%,transparent),transparent);opacity:0;transition:opacity .18s ease}
+.stock-card:hover:after{opacity:1}
+.stock-card-head span,.stock-card-foot{font-size:10px}.stock-card-price>b{letter-spacing:-.025em}
+.stock-wallet-gate{max-width:520px;margin:70px auto;padding:28px;border:1px solid var(--line);border-radius:22px;background:var(--panel);text-align:center}
+.wallet-orb{width:54px;height:54px;margin:0 auto 14px;display:grid;place-items:center;border-radius:16px;background:color-mix(in srgb,var(--accent) 12%,var(--panel2));color:var(--accent);font-size:24px}
+.portfolio-summary{gap:9px;margin-bottom:18px}.portfolio-summary>div{padding:15px 16px;border:1px solid var(--line)}.portfolio-summary>div span{font-size:10px}.portfolio-summary>div b{font-size:20px;letter-spacing:-.03em}
+.wallet-section-head{display:flex;align-items:center;justify-content:space-between;gap:14px;margin:18px 2px 10px}.wallet-section-head>div{display:flex;flex-direction:column;gap:3px}.wallet-section-head span{font-size:10px;color:var(--muted)}.wallet-section-head .secondary{height:36px;padding:0 13px}.wallet-section-head.simple{margin-top:22px}
+.stock-list{display:grid;gap:8px}.stock-list-row{border:1px solid var(--line);padding:11px 12px}.stock-list-row:hover{border-color:color-mix(in srgb,var(--accent) 25%,var(--line));background:color-mix(in srgb,var(--accent) 3%,var(--panel))}
+.stock-list-price span{font-size:9px}.stock-list-copy span{font-size:10px}
+.stock-wallet-activity{margin-top:4px}.wallet-activity-list{display:grid;gap:6px}.wallet-activity-row{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--line);border-radius:13px;background:var(--panel)}.wallet-activity-row>div{display:flex;flex-direction:column;gap:2px;min-width:0}.wallet-activity-row b{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12px}.wallet-activity-row small{color:var(--muted);font-size:9px}.wallet-activity-row strong{font-size:11px}.trade-kind{font-size:9px;font-weight:850;border-radius:999px;padding:5px 7px;border:1px solid var(--line)}.trade-kind.buy{color:var(--accent);background:color-mix(in srgb,var(--accent) 7%,var(--panel))}.trade-kind.sell{color:#55b77b;background:rgba(85,183,123,.07)}
+.stock-wallet-tabs{position:sticky;top:77px;z-index:8;width:max-content;padding:4px;background:color-mix(in srgb,var(--panel2) 94%,transparent);backdrop-filter:blur(12px);border:1px solid var(--line);border-radius:13px}
+.stock-wallet-tabs button{border-radius:9px}
+.stock-overlay-modal{z-index:20000!important;background:rgba(7,11,18,.68)!important;backdrop-filter:blur(9px);-webkit-backdrop-filter:blur(9px)}
+.stock-overlay-modal .modal-card{border:1px solid color-mix(in srgb,var(--line) 80%,var(--accent));box-shadow:0 28px 90px rgba(0,0,0,.38)!important}
+.stock-detail-card{width:min(720px,calc(100vw - 24px));border-radius:22px!important}.stock-create-card{border-radius:22px!important}
+.stock-detail-hero{padding:2px 2px 15px}.stock-detail-price{font-size:30px}.stock-chart-card{background:color-mix(in srgb,var(--panel2) 65%,var(--panel));padding:14px;border-radius:17px}
+.stock-trade-box{background:color-mix(in srgb,var(--panel2) 45%,var(--panel));border-radius:17px}.stock-trade-box input{background:var(--panel);border-radius:11px}
+.stock-trade-quote strong{font-size:16px}.stock-trade-actions .primary,.stock-trade-actions .secondary{border-radius:11px}
+@media(max-width:760px){
+  .compact-top{padding:0 2px}.sidebar-wallet-quick{width:40px;height:40px}
+  .stock-market-body,.stock-wallet-body{width:100%!important;padding:12px!important}
+  .stock-market-top{border-radius:16px;padding:13px}.stock-market-top span{font-size:10px}
+  .stock-wallet-tabs{top:64px;width:100%}
+  .portfolio-summary{grid-template-columns:1fr 1fr!important}.portfolio-summary>div:first-child{grid-column:1/-1}.portfolio-summary>div:last-child{grid-column:auto!important}
+  .wallet-section-head{margin-top:15px}.wallet-activity-row{grid-template-columns:auto minmax(0,1fr) auto;padding:9px 10px}
+  .stock-overlay-modal{align-items:end!important;padding:0!important;background:rgba(7,11,18,.72)!important}
+  .stock-overlay-modal .modal-card{width:100%!important;max-width:100%!important;max-height:92dvh!important;border-radius:22px 22px 0 0!important;border-bottom:0!important;padding:16px!important;padding-bottom:calc(16px + env(safe-area-inset-bottom))!important}
+  .stock-detail-card{height:auto!important}.stock-detail-price{font-size:27px}.stock-chart-card canvas{max-height:175px}
+}
+@media(max-width:380px){.portfolio-summary{grid-template-columns:1fr!important}.portfolio-summary>div:first-child{grid-column:auto}}
+
+
+/* 0.2.0v — global surface polish */
+html{scroll-behavior:smooth}body{-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+.chat-head{background:color-mix(in srgb,var(--panel) 94%,transparent);border-bottom-color:color-mix(in srgb,var(--line) 82%,transparent)}
+.composer{border-color:color-mix(in srgb,var(--line) 88%,transparent)}
+.composer:focus-within{border-color:color-mix(in srgb,var(--accent) 38%,var(--line));box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 7%,transparent)}
+input:focus,textarea:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--accent) 45%,var(--line));box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 7%,transparent)}
+.primary,.small-primary{font-weight:780;letter-spacing:-.01em}.secondary{font-weight:700}
+.bubble{border-radius:17px}.contact-item,.chat-item{border:1px solid transparent}.contact-item:hover,.chat-item:hover{border-color:color-mix(in srgb,var(--line) 80%,transparent)}

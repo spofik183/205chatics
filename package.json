@@ -1,6 +1,6 @@
 {
   "name": "205chating",
-  "version": "0.1.9",
+  "version": "0.2.0",
   "description": "205chating realtime messenger",
   "main": "server.js",
   "scripts": {

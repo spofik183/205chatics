@@ -1,4 +1,4 @@
-// ========================= 205chating 0.1.9v — virtual stocks =========================
+// ========================= 205chating 0.2.0v — virtual stocks =========================
 let stockMarket = [];
 let stockWallet = null;
 let selectedStock = null;
@@ -84,13 +84,16 @@ async function loadStockWallet(){
 function renderStockWallet(){
   if(!stockWallet)return;
   const holdings=stockWallet.holdings||[],created=stockWallet.created||[];
-  const totalValue=holdings.reduce((a,s)=>a+(Number(s.value)||0),0);
-  const summary=$('#stockPortfolioSummary');if(summary)summary.innerHTML=`<div><span>Акций в портфеле</span><b>${holdings.reduce((a,s)=>a+(s.qty||0),0)}</b></div><div><span>Стоимость портфеля</span><b>${stockFmt(totalValue)}🍓</b></div><div><span>Баланс</span><b>${stockFmt(stockWallet.balance)}🍓</b></div>`;
-  const list=$('#stockPortfolioList');if(list){list.innerHTML='';holdings.forEach(stock=>{const row=document.createElement('button');row.type='button';row.className='stock-list-row';row.innerHTML=`<div class="stock-avatar"></div><div class="stock-list-copy"><b>${escapeHtml(stock.name)} ${stockVerify(stock)}</b><span>${stock.qty} шт. · ${stockFmt(stock.value)}🍓</span></div><div class="stock-list-price"><b>${stockFmt(stock.price)}🍓</b><span class="stock-growth ${stockGrowthClass(stock.growth1h)}">${stockGrowthText(stock.growth1h)}</span></div>`;stockAvatar(row.querySelector('.stock-avatar'),stock);row.onclick=()=>openStockDetail(stock.id);list.appendChild(row)});if(!list.children.length)list.innerHTML='<div class="stock-empty compact"><b>Портфель пуст</b><span>Открой рынок и выбери первую акцию.</span><button id="walletGoMarket" class="secondary">Перейти на рынок</button></div>';list.querySelector('#walletGoMarket')?.addEventListener('click',e=>{e.stopPropagation();openStockMarket()})}
+  const totalValue=holdings.reduce((a,s)=>a+(Number(s.value)||0),0),totalBasis=holdings.reduce((a,s)=>a+(Number(s.basis)||0),0),totalPnl=Math.round((totalValue-totalBasis)*10000)/10000;
+  const pnlClass=totalPnl>0?'up':totalPnl<0?'down':'flat';
+  const summary=$('#stockPortfolioSummary');if(summary)summary.innerHTML=`<div><span>Портфель</span><b>${stockFmt(totalValue)}🍓</b></div><div><span>Результат</span><b class="stock-growth ${pnlClass}">${totalPnl>0?'+':''}${stockFmt(totalPnl)}🍓</b></div><div><span>Доступно</span><b>${stockFmt(stockWallet.balance)}🍓</b></div>`;
+  const list=$('#stockPortfolioList');if(list){list.innerHTML='';holdings.forEach(stock=>{const row=document.createElement('button');row.type='button';row.className='stock-list-row';row.innerHTML=`<div class="stock-avatar"></div><div class="stock-list-copy"><b>${escapeHtml(stock.name)} ${stockVerify(stock)}</b><span>${stock.qty} шт. · ср. ${stockFmt(stock.avgPrice||stock.price)}🍓</span></div><div class="stock-list-price"><b>${stockFmt(stock.value)}🍓</b><span class="stock-growth ${stockGrowthClass(stock.pnl)}">${Number(stock.pnl)>0?'+':''}${stockFmt(stock.pnl||0)}🍓 · ${stockGrowthText(stock.pnlPct||0)}</span></div>`;stockAvatar(row.querySelector('.stock-avatar'),stock);row.onclick=()=>openStockDetail(stock.id);list.appendChild(row)});if(!list.children.length)list.innerHTML='<div class="stock-empty compact"><b>Портфель пуст</b><span>Открой рынок и выбери первую акцию.</span><button id="walletGoMarket" class="secondary">Перейти на рынок</button></div>';list.querySelector('#walletGoMarket')?.addEventListener('click',e=>{e.stopPropagation();openStockMarket()})}
   const mine=$('#myCreatedStocks');if(mine){mine.innerHTML='';created.forEach(stock=>{const row=document.createElement('button');row.type='button';row.className='stock-list-row creator-stock-row';row.innerHTML=`<div class="stock-avatar"></div><div class="stock-list-copy"><b>${escapeHtml(stock.name)} ${stockVerify(stock)}</b><span>${stock.circulating} в обороте · ${stock.forecast}</span></div><div class="stock-list-price"><b>${stockFmt(stock.price)}🍓</b><span class="stock-growth ${stockGrowthClass(stock.growth1h)}">${stockGrowthText(stock.growth1h)}</span></div>`;stockAvatar(row.querySelector('.stock-avatar'),stock);row.onclick=()=>openStockDetail(stock.id);mine.appendChild(row)});if(!mine.children.length)mine.innerHTML='<div class="stock-empty compact"><b>Своих акций пока нет</b><span>Premium позволяет выпустить до 3 акций.</span></div>'}
+  const activity=$('#stockWalletActivity');if(activity){const rows=stockWallet.recentTrades||[];activity.innerHTML=rows.length?`<div class="wallet-section-head simple"><div><b>Последние операции</b><span>Покупки и продажи в вашем кошельке</span></div></div><div class="wallet-activity-list">${rows.map(t=>`<div class="wallet-activity-row"><span class="trade-kind ${t.type==='buy'?'buy':'sell'}">${t.type==='buy'?'Куплено':'Продано'}</span><div><b>${escapeHtml(t.stock?.name||'Удалённая акция')}</b><small>${Math.abs(Number(t.qty)||0)} шт.</small></div><strong>${t.type==='buy'?'-':'+'}${stockFmt(t.total)}🍓</strong></div>`).join('')}</div>`:''}
   const create=$('#createStockFromWallet');if(create){create.disabled=!me?.premium||created.length>=Number(stockWallet.maxCreated||3);create.title=!me?.premium?'Нужен Chatics Premium':created.length>=Number(stockWallet.maxCreated||3)?'Лимит 3 акции':''}
 }
 async function openStockWallet({fromSettings=false}={}){
+  $('#sideMenu')?.classList.add('hidden');$('#sidebar')?.classList.remove('mobile-open');
   stockWalletReturnToSettings=fromSettings;$('#settingsPage')?.classList.add('hidden');$('#stockMarketPage')?.classList.add('hidden');$('#stockWalletPage')?.classList.remove('hidden');await loadStockWallet();
 }
 async function activateStockWallet(){
@@ -112,7 +115,9 @@ function updateStockTradeQuote(){
   const s=selectedStock;if(!s)return;const qty=currentTradeQty(),unit=Math.max(.01,Number(s.price)||.01),total=Math.round(unit*qty*10000)/10000;
   if($('#stockTradeUnit'))$('#stockTradeUnit').textContent=`${stockFmt(unit)}🍓`;
   if($('#stockTradeTotal'))$('#stockTradeTotal').textContent=`Итого за ${qty}: ${stockFmt(total)}🍓`;
-  const buy=$('#buyStockBtn');if(buy&&Boolean(me?.stockWalletOpened||stockWallet?.opened))buy.textContent=`Купить · ${stockFmt(total)}🍓`;
+  const opened=Boolean(me?.stockWalletOpened||stockWallet?.opened),buy=$('#buyStockBtn'),sell=$('#sellStockBtn');
+  if(buy&&opened)buy.textContent=`Купить · ${stockFmt(total)}🍓`;
+  if(sell&&opened){const payout=Math.round(total*.985*10000)/10000;sell.textContent=`Продать · ~${stockFmt(payout)}🍓`;}
 }
 function renderStockDetail(){
   const s=selectedStock;if(!s)return;$('#stockDetailName').innerHTML=`${escapeHtml(s.name)} ${stockVerify(s)}`;$('#stockDetailCreator').textContent=`Создатель: @${s.creator?.username||'user'}`;stockAvatar($('#stockDetailAvatar'),s);$('#stockDetailPrice').textContent=`${stockFmt(s.price)}🍓`;const g=$('#stockDetailGrowth');g.className=`stock-growth ${stockGrowthClass(s.growth1h)}`;g.textContent=`${stockGrowthText(s.growth1h)} за последний час`;$('#stockDetailOwned').textContent=`У вас: ${s.owned||0} шт.`;$('#stockDetailForecast').textContent=`${s.forecast} · объём ${s.volume1h||0}/ч`;drawStockDetailChart(s.history||[]);
@@ -152,6 +157,8 @@ $('#fabChoiceModal')?.classList.add('hidden');
 
 // Navigation
 $('#sideStocks')?.addEventListener('click',openStockMarket);
+$('#sideWalletQuick')?.addEventListener('click',e=>{e.stopPropagation();$('#sideMenu')?.classList.add('hidden');openStockWallet()});
+$('#walletOpenMarket')?.addEventListener('click',openStockMarket);
 $('#closeStockMarket')?.addEventListener('click',()=>$('#stockMarketPage').classList.add('hidden'));
 $('#stockSort')?.addEventListener('change',renderStockMarket);
 $('#openWalletFromMarket')?.addEventListener('click',()=>openStockWallet());
