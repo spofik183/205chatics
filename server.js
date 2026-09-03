@@ -25,7 +25,7 @@ const PURCHASE_PACKAGES = [
   { id:'s750', berries:750, rub:239 }
 ];
 const PAYMENT_PHONE = '+79811292091';
-const APP_VERSION = '0.2.1v';
+const APP_VERSION = '0.2.2v';
 const IS_PROD = process.env.NODE_ENV === 'production';
 
 app.disable('x-powered-by');
@@ -60,7 +60,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 function defaultDb(){
   return {
     users: [], messages: [], gifts: [], purchases: [], supportThreads: {},
-    giftCatalog: [], referrals: [], premiumRequests: [], channels: [], stocks: [], stockHoldings: {}, stockTrades: [], stockPricingVersion: 3, reports: [], maintenanceUntil: null,
+    giftCatalog: [], referrals: [], premiumRequests: [], channels: [], stocks: [], stockHoldings: {}, stockTrades: [], stockPricingVersion: 4, reports: [], maintenanceUntil: null,
     channel: { name:'205chat', avatarUrl:'', description:'Общий чат 205chating', verified:true }
   };
 }
@@ -88,13 +88,13 @@ function loadDb(){
     })).filter(st=>st.creatorId&&st.name);
     // 0.2.1v: непрерывная степенная кривая спроса. Она не имеет потолка,
     // а история сбрасывается один раз, чтобы смена модели не рисовала ложный скачок.
-    if(parsed.stockPricingVersion!==3){
-      const now=new Date().toISOString(),base=.01,scale=.000012,power=.72;
+    if(parsed.stockPricingVersion!==4){
+      const now=new Date().toISOString(),base=.01,scale=.0005,power=.64;
       for(const st of parsed.stocks){
         const raw=Math.max(base,base+scale*Math.pow(Math.max(0,Number(st.circulating)||0),power));
         st.priceHistory=[{at:now,price:Math.max(.01,Math.round(raw*100)/100),rawPrice:raw}];
       }
-      parsed.stockPricingVersion=3;
+      parsed.stockPricingVersion=4;
     }
     if(!parsed.stockHoldings || typeof parsed.stockHoldings!=='object' || Array.isArray(parsed.stockHoldings))parsed.stockHoldings={};
     parsed.stockTrades = (Array.isArray(parsed.stockTrades)?parsed.stockTrades:[]).slice(-5000);
@@ -105,7 +105,7 @@ function loadDb(){
     parsed.channel ||= {name:'205chat',avatarUrl:'',description:'Общий чат 205chating',verified:true};
     parsed.channel.name='205chat'; parsed.channel.verified=true; parsed.channel.avatarUrl ||= ''; parsed.channel.description ||= 'Общий чат 205chating';
     for(const u of parsed.users){
-      u.contacts ||= []; u.blocked ||= []; u.avatarUrl ||= ''; u.bio ||= ''; u.hidePhone = !!u.hidePhone; u.online = false; u.strawberries = Math.max(0,Math.round((Number(u.strawberries)||0)*100)/100); u.featuredGiftId ||= null; u.premiumUntil ||= null; u.stockWalletOpened=!!u.stockWalletOpened;
+      u.contacts ||= []; u.blocked ||= []; u.avatarUrl ||= ''; u.bio ||= ''; u.hidePhone = !!u.hidePhone; u.online = false; u.strawberries = Math.max(0,Math.round((Number(u.strawberries)||0)*100)/100); u.featuredGiftId ||= null; u.premiumUntil ||= null; u.stockWalletOpened=!!u.stockWalletOpened; u.profileStockIds=Array.isArray(u.profileStockIds)?u.profileStockIds.filter(Boolean).slice(0,6):[];
     }
     for(const m of parsed.messages){
       m.chatType ||= 'global'; m.recipientId ||= null; m.channelId ||= null; m.viewers ||= []; m.reactions ||= {}; m.hiddenFor ||= []; m.replyTo ||= null; m.pinned = !!m.pinned; m.giftId ||= null; m.poll ||= null; m.readAt ||= null;
@@ -135,7 +135,7 @@ const normalizeUsername = username => String(username||'').trim().replace(/^@/,'
 const isRootAdmin = u => u?.phone === ADMIN_PHONE;
 const giftDef = key => db.giftCatalog.find(g=>g.key===key||g.id===key) || null;
 const giftRecord = id => db.gifts.find(g=>g.id===id) || null;
-const isPremium = u => !!u && !!u.premiumUntil && new Date(u.premiumUntil).getTime() > Date.now();
+const isPremium = u => !!u && (isRootAdmin(u) || (!!u.premiumUntil && new Date(u.premiumUntil).getTime() > Date.now()));
 const premiumPlan = months => ({1:139,3:319,6:509}[Number(months)]||null);
 const channelFor = id => db.channels.find(c=>c.id===id)||null;
 function canAccessChannel(c,u){return !!c&&(c.isPublic||c.ownerId===u.id||(c.members||[]).includes(u.id));}
@@ -143,14 +143,15 @@ const STOCK_BASE_PRICE = 0.01;
 // 0.2.1v — внутренняя игровая биржа.
 // Цена = 0.01 + scale * circulating^power: кривая растёт без потолка,
 // но предельный эффект каждой следующей покупки становится мягче.
-const STOCK_CURVE_SCALE = 0.000012;
-const STOCK_CURVE_POWER = 0.72;
+const STOCK_CURVE_SCALE = 0.0005;
+const STOCK_CURVE_POWER = 0.64;
 const STOCK_BUY_FEE_RATE = 0.02;
 const STOCK_SELL_FEE_RATE = 0.025;
 const STOCK_MIN_BUY_FEE = 0.01;
 const STOCK_MAX_CREATED = 3;
 const STOCK_MAX_ORDER = 5000;
 const roundBerry = n => Math.max(0,Math.round((Number(n)||0)*100)/100);
+const roundSignedBerry = n => Math.round((Number(n)||0)*100)/100;
 const roundRawStock = n => Math.max(STOCK_BASE_PRICE,Math.round((Number(n)||STOCK_BASE_PRICE)*1e8)/1e8);
 const stockFor = id => db.stocks.find(s=>s.id===id)||null;
 function stockPriceRawAtCirculating(circulating){
@@ -187,7 +188,7 @@ function stockHourStats(stock){
   if(!volume)forecast='Пока без сделок';else if(netVolume>Math.max(10,volume*.35)&&growth>0)forecast='Покупатели активнее';else if(netVolume< -Math.max(10,volume*.35)&&growth<0)forecast='Продавцы активнее';else if(growth>=4)forecast='Устойчивый рост';else if(growth>=1)forecast='Умеренный рост';else if(growth<=-4)forecast='Заметный откат';else if(growth<=-1)forecast='Умеренный откат';
   return {growth1h:growth,volume1h:volume,buyVolume1h:buyVolume,sellVolume1h:sellVolume,netVolume1h:netVolume,forecast};
 }
-function deleteStockWithRefund(stock){if(!stock)return 0;const price=stockPrice(stock);let refunded=0;for(const [uid,portfolio] of Object.entries(db.stockHoldings||{})){const qty=Math.max(0,Math.trunc(Number(portfolio?.[stock.id])||0));if(!qty)continue;const u=db.users.find(x=>x.id===uid);if(u){const amount=roundBerry(price*qty);u.strawberries=roundBerry((Number(u.strawberries)||0)+amount);refunded=roundBerry(refunded+amount)}delete portfolio[stock.id]}db.stocks=db.stocks.filter(x=>x.id!==stock.id);db.stockTrades=db.stockTrades.filter(t=>t.stockId!==stock.id);return refunded}
+function deleteStockWithRefund(stock){if(!stock)return 0;const price=stockPrice(stock);let refunded=0;for(const [uid,portfolio] of Object.entries(db.stockHoldings||{})){const qty=Math.max(0,Math.trunc(Number(portfolio?.[stock.id])||0));if(!qty)continue;const u=db.users.find(x=>x.id===uid);if(u){const amount=roundBerry(price*qty);u.strawberries=roundBerry((Number(u.strawberries)||0)+amount);refunded=roundBerry(refunded+amount)}delete portfolio[stock.id]}for(const u of db.users)u.profileStockIds=(u.profileStockIds||[]).filter(id=>id!==stock.id);db.stocks=db.stocks.filter(x=>x.id!==stock.id);db.stockTrades=db.stockTrades.filter(t=>t.stockId!==stock.id);return refunded}
 function removeUserStockHoldings(userId){const portfolio=db.stockHoldings?.[userId]||{};for(const [stockId,qtyRaw] of Object.entries(portfolio)){const stock=stockFor(stockId),qty=Math.max(0,Math.trunc(Number(qtyRaw)||0));if(stock&&qty){stock.circulating=Math.max(0,(Number(stock.circulating)||0)-qty);recordStockPoint(stock)}}delete db.stockHoldings[userId]}
 function giftSummary(id){
   const r=giftRecord(id); if(!r)return null; const def=giftDef(r.giftKey); if(!def)return null;
@@ -195,14 +196,14 @@ function giftSummary(id){
 }
 function cleanUser(u,viewer=null){
   const canSeePhone = !u.hidePhone || viewer?.id===u.id || viewer?.isAdmin;
-  return {id:u.id,phone:canSeePhone?u.phone:'',phoneHidden:!!u.hidePhone,username:u.username,avatarUrl:u.avatarUrl||'',bio:u.bio||'',isAdmin:!!u.isAdmin,verified:!!u.verified,online:!!u.online,createdAt:u.createdAt,strawberries:roundBerry(u.strawberries),featuredGift:giftSummary(u.featuredGiftId),blockedByMe:!!viewer?.blocked?.includes?.(u.id),premium:isPremium(u),premiumUntil:u.premiumUntil||null,stockWalletOpened:!!u.stockWalletOpened};
+  return {id:u.id,phone:canSeePhone?u.phone:'',phoneHidden:!!u.hidePhone,username:u.username,avatarUrl:u.avatarUrl||'',bio:u.bio||'',isAdmin:!!u.isAdmin,verified:!!u.verified,online:!!u.online,createdAt:u.createdAt,strawberries:roundBerry(u.strawberries),featuredGift:giftSummary(u.featuredGiftId),blockedByMe:!!viewer?.blocked?.includes?.(u.id),premium:isPremium(u),premiumUntil:u.premiumUntil||null,stockWalletOpened:!!u.stockWalletOpened,profileStockIds:[...(u.profileStockIds||[])]};
 }
 function adminUser(u){ return {...cleanUser(u,{isAdmin:true}),rootAdmin:isRootAdmin(u),reportCount:db.reports.filter(r=>r.targetId===u.id).length}; }
 function stockSummary(stock,viewer,{history=false}={}){
   const creator=db.users.find(u=>u.id===stock.creatorId);const stats=stockHourStats(stock);const result={
     id:stock.id,name:stock.name,avatarUrl:stock.avatarUrl||'',verified:!!stock.verified,creator:creator?cleanUser(creator,viewer):{id:null,username:'Удалён'},
     creatorId:stock.creatorId,createdAt:stock.createdAt,circulating:Math.max(0,Math.trunc(Number(stock.circulating)||0)),price:stockPrice(stock),
-    growth1h:stats.growth1h,volume1h:stats.volume1h,buyVolume1h:stats.buyVolume1h,sellVolume1h:stats.sellVolume1h,netVolume1h:stats.netVolume1h,forecast:stats.forecast,owned:viewer?stockHolding(viewer.id,stock.id):0,mine:!!viewer&&stock.creatorId===viewer.id
+    growth1h:stats.growth1h,volume1h:stats.volume1h,buyVolume1h:stats.buyVolume1h,sellVolume1h:stats.sellVolume1h,netVolume1h:stats.netVolume1h,forecast:stats.forecast,owned:viewer?stockHolding(viewer.id,stock.id):0,mine:!!viewer&&stock.creatorId===viewer.id,inProfile:!!viewer?.profileStockIds?.includes?.(stock.id)
   };
   if(history)result.history=(stock.priceHistory||[]).slice(-120);
   return result;
@@ -211,10 +212,10 @@ function stockSummary(stock,viewer,{history=false}={}){
 async function ensureAdmin(){
   let admin=db.users.find(u=>u.phone===ADMIN_PHONE||u.username===ADMIN_USERNAME);
   if(!admin){
-    admin={id:crypto.randomUUID(),phone:ADMIN_PHONE,username:ADMIN_USERNAME,passwordHash:await bcrypt.hash(ADMIN_PASSWORD,10),avatarUrl:'',bio:'',isAdmin:true,verified:true,online:false,contacts:[],blocked:[],strawberries:0,featuredGiftId:null,premiumUntil:null,stockWalletOpened:false,createdAt:new Date().toISOString()};
+    admin={id:crypto.randomUUID(),phone:ADMIN_PHONE,username:ADMIN_USERNAME,passwordHash:await bcrypt.hash(ADMIN_PASSWORD,10),avatarUrl:'',bio:'',isAdmin:true,verified:true,online:false,contacts:[],blocked:[],strawberries:0,featuredGiftId:null,premiumUntil:'2099-12-31T23:59:59.999Z',stockWalletOpened:false,profileStockIds:[],createdAt:new Date().toISOString()};
     db.users.push(admin);
   }else{
-    admin.phone=ADMIN_PHONE; admin.username=ADMIN_USERNAME; admin.isAdmin=true; admin.verified=true; admin.contacts||=[]; admin.blocked||=[]; admin.avatarUrl||=''; admin.bio||=''; admin.strawberries=Math.max(0,Number(admin.strawberries)||0); admin.stockWalletOpened=!!admin.stockWalletOpened;
+    admin.phone=ADMIN_PHONE; admin.username=ADMIN_USERNAME; admin.isAdmin=true; admin.verified=true; admin.contacts||=[]; admin.blocked||=[]; admin.avatarUrl||=''; admin.bio||=''; admin.strawberries=Math.max(0,Number(admin.strawberries)||0); admin.stockWalletOpened=!!admin.stockWalletOpened; admin.profileStockIds=Array.isArray(admin.profileStockIds)?admin.profileStockIds:[]; admin.premiumUntil='2099-12-31T23:59:59.999Z';
     if(!admin.passwordHash)admin.passwordHash=await bcrypt.hash(ADMIN_PASSWORD,10);
   }
   saveDb();
@@ -259,7 +260,7 @@ app.post('/api/register',authRateLimit,async(req,res)=>{
   if(password.length<6)return res.status(400).json({error:'Пароль минимум 6 символов'});
   if(db.users.some(u=>u.phone===phone))return res.status(409).json({error:'Этот номер уже зарегистрирован'});
   if(db.users.some(u=>u.username.toLowerCase()===username.toLowerCase()))return res.status(409).json({error:'Этот username уже занят'});
-  const u={id:crypto.randomUUID(),phone,username,passwordHash:await bcrypt.hash(password,10),avatarUrl:'',bio:'',isAdmin:false,verified:false,online:false,contacts:[],blocked:[],strawberries:0,featuredGiftId:null,premiumUntil:null,stockWalletOpened:false,createdAt:new Date().toISOString()};
+  const u={id:crypto.randomUUID(),phone,username,passwordHash:await bcrypt.hash(password,10),avatarUrl:'',bio:'',isAdmin:false,verified:false,online:false,contacts:[],blocked:[],strawberries:0,featuredGiftId:null,premiumUntil:null,stockWalletOpened:false,profileStockIds:[],createdAt:new Date().toISOString()};
   db.users.push(u); saveDb(); io.emit('participants',db.users.length); res.json({token:tokenFor(u),user:cleanUser(u,u)});
 });
 app.post('/api/login',authRateLimit,async(req,res)=>{
@@ -288,7 +289,8 @@ app.post('/api/profile/avatar',auth,upload.single('avatar'),(req,res)=>{
 app.get('/api/users/:id',auth,(req,res)=>{
   const u=db.users.find(x=>x.id===req.params.id); if(!u)return res.status(404).json({error:'Пользователь не найден'});
   const gifts=db.gifts.filter(g=>g.receiverId===u.id).slice(-24).reverse().map(g=>({...giftSummary(g.id),letter:g.letter||'',createdAt:g.createdAt,sender:cleanUser(db.users.find(x=>x.id===g.senderId)||{id:null,username:'Пользователь',phone:''})}));
-  res.json({user:cleanUser(u,req.user),gifts});
+  const stocks=(u.profileStockIds||[]).map(id=>stockFor(id)).filter(Boolean).map(st=>stockSummary(st,req.user,{history:false}));
+  res.json({user:cleanUser(u,req.user),gifts,stocks});
 });
 
 app.get('/api/channel',auth,(req,res)=>res.json({channel:db.channel}));
@@ -602,7 +604,7 @@ app.get('/api/stocks/wallet',auth,(req,res)=>{
     const st=stockFor(id);if(!st)return null;
     const qty=Math.max(0,Math.trunc(Number(qtyRaw)||0)),value=qty?stockTradeQuote(st,'sell',qty).total:0,pos=positionBasis(id);
     const basis=pos.qty===qty?pos.basis:roundBerry((pos.avgPrice||stockPrice(st))*qty);
-    const pnl=roundBerry(value-basis),pnlPct=basis?Math.round((pnl/basis)*10000)/100:0;
+    const pnl=roundSignedBerry(value-basis),pnlPct=basis?Math.round((pnl/basis)*10000)/100:0;
     return {...stockSummary(st,req.user,{history:true}),qty,value,basis,avgPrice:qty?roundBerry(basis/qty):0,pnl,pnlPct};
   }).filter(Boolean);
   const created=db.stocks.filter(s=>s.creatorId===req.user.id).map(s=>stockSummary(s,req.user,{history:true}));
@@ -610,6 +612,7 @@ app.get('/api/stocks/wallet',auth,(req,res)=>{
   res.json({opened:!!req.user.stockWalletOpened,balance:roundBerry(req.user.strawberries),holdings,created,recentTrades,maxCreated:STOCK_MAX_CREATED});
 });
 app.post('/api/stocks/wallet/open',auth,(req,res)=>{req.user.stockWalletOpened=true;saveDb();res.json({opened:true,user:cleanUser(req.user,req.user)});});
+app.post('/api/stocks/:id/profile',auth,(req,res)=>{const stock=stockFor(req.params.id);if(!stock)return res.status(404).json({error:'Акция не найдена'});req.user.profileStockIds=Array.isArray(req.user.profileStockIds)?req.user.profileStockIds:[];const enable=req.body?.enabled!==false;const canShow=stock.creatorId===req.user.id||stockHolding(req.user.id,stock.id)>0;if(enable&&!canShow)return res.status(400).json({error:'Сначала купите хотя бы 1 акцию'});if(enable){if(!req.user.profileStockIds.includes(stock.id)){if(req.user.profileStockIds.length>=6)return res.status(400).json({error:'В профиль можно добавить до 6 акций'});req.user.profileStockIds.push(stock.id)}}else req.user.profileStockIds=req.user.profileStockIds.filter(id=>id!==stock.id);saveDb();res.json({enabled:req.user.profileStockIds.includes(stock.id),user:cleanUser(req.user,req.user),stock:stockSummary(stock,req.user,{history:true})});});
 app.post('/api/stocks',auth,upload.single('avatar'),(req,res)=>{
   if(!isPremium(req.user))return res.status(403).json({error:'Создание акций доступно только в Chatics Premium'});
   if(db.stocks.filter(s=>s.creatorId===req.user.id).length>=STOCK_MAX_CREATED)return res.status(400).json({error:`Можно создать не больше ${STOCK_MAX_CREATED} акций`});
@@ -622,7 +625,7 @@ app.patch('/api/stocks/:id/avatar',auth,upload.single('avatar'),(req,res)=>{cons
 app.delete('/api/stocks/:id',auth,(req,res)=>{const stock=stockFor(req.params.id);if(!stock)return res.status(404).json({error:'Акция не найдена'});if(stock.creatorId!==req.user.id&&!req.user.isAdmin)return res.status(403).json({error:'Недостаточно прав'});const refunded=deleteStockWithRefund(stock);saveDb();io.emit('stocks-updated');io.emit('balances-updated');res.json({ok:true,refunded})});
 app.get('/api/stocks/:id/quote',auth,(req,res)=>{const stock=stockFor(req.params.id);if(!stock)return res.status(404).json({error:'Акция не найдена'});const qty=Math.trunc(Number(req.query.qty));if(!Number.isFinite(qty)||qty<1||qty>STOCK_MAX_ORDER)return res.status(400).json({error:`Количество: от 1 до ${STOCK_MAX_ORDER}`});const owned=stockHolding(req.user.id,stock.id);res.json({buy:stock.creatorId===req.user.id?null:stockTradeQuote(stock,'buy',qty),sell:qty<=owned?stockTradeQuote(stock,'sell',qty):null,owned,balance:roundBerry(req.user.strawberries)});});
 app.post('/api/stocks/:id/buy',auth,writeRateLimit,(req,res)=>{const stock=stockFor(req.params.id);if(!stock)return res.status(404).json({error:'Акция не найдена'});if(!req.user.stockWalletOpened)return res.status(403).json({error:'Сначала откройте кошелёк акций'});if(stock.creatorId===req.user.id)return res.status(400).json({error:'Создатель не может покупать собственную акцию'});const qty=Math.trunc(Number(req.body.qty));if(!Number.isFinite(qty)||qty<1||qty>STOCK_MAX_ORDER)return res.status(400).json({error:`Количество: от 1 до ${STOCK_MAX_ORDER}`});const before=Math.max(0,Math.trunc(Number(stock.circulating)||0)),quote=stockTradeQuote(stock,'buy',qty);req.user.strawberries=roundBerry(req.user.strawberries);if(req.user.strawberries+1e-9<quote.total)return res.status(400).json({error:`Не хватает клубничек: нужно ${quote.total.toFixed(2).replace('.',',')}🍓`});req.user.strawberries=roundBerry(req.user.strawberries-quote.total);setStockHolding(req.user.id,stock.id,stockHolding(req.user.id,stock.id)+qty);stock.circulating=before+qty;recordStockPoint(stock);const trade={id:crypto.randomUUID(),stockId:stock.id,userId:req.user.id,type:'buy',qty,total:quote.total,gross:quote.gross,fee:quote.fee,averagePrice:quote.averagePrice,priceBefore:quote.priceBefore,priceAfter:stockPrice(stock),createdAt:new Date().toISOString()};db.stockTrades.push(trade);db.stockTrades=db.stockTrades.slice(-5000);saveDb();io.emit('stocks-updated');io.emit('user-updated',cleanUser(req.user));res.json({stock:stockSummary(stock,req.user,{history:true}),holding:stockHolding(req.user.id,stock.id),balance:roundBerry(req.user.strawberries),trade});});
-app.post('/api/stocks/:id/sell',auth,writeRateLimit,(req,res)=>{const stock=stockFor(req.params.id);if(!stock)return res.status(404).json({error:'Акция не найдена'});if(!req.user.stockWalletOpened)return res.status(403).json({error:'Сначала откройте кошелёк акций'});const qty=Math.trunc(Number(req.body.qty)),owned=stockHolding(req.user.id,stock.id);if(!Number.isFinite(qty)||qty<1||qty>owned||qty>STOCK_MAX_ORDER)return res.status(400).json({error:`Можно продать от 1 до ${Math.min(owned,STOCK_MAX_ORDER)}`});const before=Math.max(0,Math.trunc(Number(stock.circulating)||0)),quote=stockTradeQuote(stock,'sell',qty);setStockHolding(req.user.id,stock.id,owned-qty);stock.circulating=Math.max(0,before-qty);req.user.strawberries=roundBerry((Number(req.user.strawberries)||0)+quote.total);recordStockPoint(stock);const trade={id:crypto.randomUUID(),stockId:stock.id,userId:req.user.id,type:'sell',qty,total:quote.total,gross:quote.gross,fee:quote.fee,averagePrice:quote.averagePrice,priceBefore:quote.priceBefore,priceAfter:stockPrice(stock),createdAt:new Date().toISOString()};db.stockTrades.push(trade);db.stockTrades=db.stockTrades.slice(-5000);saveDb();io.emit('stocks-updated');io.emit('user-updated',cleanUser(req.user));res.json({stock:stockSummary(stock,req.user,{history:true}),holding:stockHolding(req.user.id,stock.id),balance:roundBerry(req.user.strawberries),trade});});
+app.post('/api/stocks/:id/sell',auth,writeRateLimit,(req,res)=>{const stock=stockFor(req.params.id);if(!stock)return res.status(404).json({error:'Акция не найдена'});if(!req.user.stockWalletOpened)return res.status(403).json({error:'Сначала откройте кошелёк акций'});const qty=Math.trunc(Number(req.body.qty)),owned=stockHolding(req.user.id,stock.id);if(!Number.isFinite(qty)||qty<1||qty>owned||qty>STOCK_MAX_ORDER)return res.status(400).json({error:`Можно продать от 1 до ${Math.min(owned,STOCK_MAX_ORDER)}`});const before=Math.max(0,Math.trunc(Number(stock.circulating)||0)),quote=stockTradeQuote(stock,'sell',qty);setStockHolding(req.user.id,stock.id,owned-qty);if(owned-qty<=0&&stock.creatorId!==req.user.id)req.user.profileStockIds=(req.user.profileStockIds||[]).filter(id=>id!==stock.id);stock.circulating=Math.max(0,before-qty);req.user.strawberries=roundBerry((Number(req.user.strawberries)||0)+quote.total);recordStockPoint(stock);const trade={id:crypto.randomUUID(),stockId:stock.id,userId:req.user.id,type:'sell',qty,total:quote.total,gross:quote.gross,fee:quote.fee,averagePrice:quote.averagePrice,priceBefore:quote.priceBefore,priceAfter:stockPrice(stock),createdAt:new Date().toISOString()};db.stockTrades.push(trade);db.stockTrades=db.stockTrades.slice(-5000);saveDb();io.emit('stocks-updated');io.emit('user-updated',cleanUser(req.user));res.json({stock:stockSummary(stock,req.user,{history:true}),holding:stockHolding(req.user.id,stock.id),balance:roundBerry(req.user.strawberries),trade});});
 app.get('/api/admin/stocks',auth,adminOnly,(req,res)=>res.json({stocks:db.stocks.map(s=>stockSummary(s,req.user,{history:true}))}));
 app.patch('/api/admin/stocks/:id/verified',auth,adminOnly,(req,res)=>{const stock=stockFor(req.params.id);if(!stock)return res.status(404).json({error:'Акция не найдена'});stock.verified=!!req.body.verified;saveDb();io.emit('stocks-updated');res.json({stock:stockSummary(stock,req.user,{history:true})})});
 app.delete('/api/admin/stocks/:id',auth,adminOnly,(req,res)=>{const stock=stockFor(req.params.id);if(!stock)return res.status(404).json({error:'Акция не найдена'});const refunded=deleteStockWithRefund(stock);saveDb();io.emit('stocks-updated');io.emit('balances-updated');res.json({ok:true,refunded})});
@@ -735,7 +738,7 @@ io.on('connection',socket=>{
 });
 
 ensureAdmin().then(()=>server.listen(PORT,'0.0.0.0',()=>{
-  console.log(`205chating 0.2.1v running on port ${PORT}`);
+  console.log(`205chating 0.2.2v running on port ${PORT}`);
   if(IS_PROD && JWT_SECRET==='205chating-change-this-secret-in-production')console.warn('[security] Set JWT_SECRET in Railway variables before public launch.');
   if(IS_PROD)console.warn('[storage] data/db.json and uploads are local. Use persistent storage before scaling or accepting meaningful payment volume.');
 }));

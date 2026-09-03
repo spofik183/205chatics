@@ -1230,6 +1230,7 @@ attachMenuEl?.addEventListener('click',e=>{
   attachMenuEl.classList.add('hidden');
   if(b.dataset.attach==='media')$('#mediaInput').click();
   if(b.dataset.attach==='file')$('#fileInput').click();
+  if(b.dataset.attach==='wallet'){if(typeof openStockWallet==='function')openStockWallet();else toast('Кошелёк загружается…');}
   if(b.dataset.attach==='poll'){
     if(!premiumActive())return openModal('premiumModal');
     openModal('pollModal');
@@ -1347,7 +1348,7 @@ setTimeout(async()=>{
   await loadPremiumChannels();
   syncPremiumModal();
   const key=`205premium-promo-${me.id}`;
-  if(!localStorage.getItem(key)&&$('#premiumPromo')?.classList.contains('hidden'))$('#premiumPromo').classList.remove('hidden');
+  if(!me?.premium&&!localStorage.getItem(key)&&$('#premiumPromo')?.classList.contains('hidden'))$('#premiumPromo').classList.remove('hidden');
   if(socket){
     socket.on('poll-updated',()=>{if(currentChannel||currentPeer||!supportMode)loadMessages()});
     socket.on('send-error',x=>toast(x?.error||'Сообщение не отправлено'));
@@ -1421,4 +1422,23 @@ function applyMessageViewUpdate(x){
   const row=document.querySelector(`.msg[data-id="${CSS.escape(x.id)}"]`);if(!row)return;
   const count=row.querySelector('.view-count');if(count)count.textContent=x.views||0;
   if(x.read){const receipt=row.querySelector('.message-receipt');if(receipt){receipt.textContent='✓✓';receipt.classList.add('read');receipt.title='Прочитано';receipt.setAttribute('aria-label','Прочитано')}}
+}
+
+
+// ========================= 0.2.2v — support commands reliability =========================
+// Keep the bot commands available even after other UI modules wrap the old palette.
+const v022SupportOpenBase = typeof openSupportUser==='function' ? openSupportUser : null;
+function renderSupportCommandsV022(mode='main'){
+  const bar=document.getElementById('supportCommandBar');
+  if(!bar || supportMode!=='user'){bar?.classList.add('hidden');return}
+  bar.dataset.mode=mode;bar.classList.remove('hidden');
+  if(mode==='berries'){
+    bar.innerHTML='<span class="command-title">Выбери количество клубничек</span><button type="button" data-support-pack="s100">100🍓 · 49₽</button><button type="button" data-support-pack="s300">300🍓 · 119₽</button><button type="button" data-support-pack="s750">750🍓 · 239₽</button><button type="button" data-support-back>← Назад</button>';
+  }else{
+    bar.innerHTML='<span class="command-title">Быстрые команды</span><button type="button" data-support-cmd="berries"># пополнить клубнички🍓</button><button type="button" data-support-cmd="premium"># купить premium👑</button><button type="button" data-support-cmd="error"># рассказать об ошибке</button><button type="button" data-support-cmd="collab"># сотрудничество</button>';
+  }
+}
+showSupportCommands = renderSupportCommandsV022;
+if(v022SupportOpenBase){
+  openSupportUser=async function(){await v022SupportOpenBase();setTimeout(()=>renderSupportCommandsV022('main'),40)};
 }

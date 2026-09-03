@@ -430,3 +430,42 @@ input:focus,textarea:focus,select:focus{outline:none;border-color:color-mix(in s
   .stock-trade-box{grid-template-columns:1fr!important}.stock-trade-actions{grid-column:auto}
 }
 @media(max-width:390px){.stock-market-grid{grid-template-columns:1fr!important}.stock-card-main{grid-template-columns:62px minmax(0,1fr)}.stock-market-avatar{width:62px!important;height:62px!important}.stock-card-title-row{flex-direction:row;align-items:center}.stock-card-maker{display:block}}
+
+/* ========================= 0.2.2v ========================= */
+/* Wallet is a primary navigation action now. */
+.sidebar-wallet-quick{
+  background:var(--accent)!important;
+  color:#fff!important;
+  border-color:var(--accent)!important;
+  box-shadow:0 6px 18px color-mix(in srgb,var(--accent) 25%,transparent)!important;
+}
+.sidebar-wallet-quick:hover{background:color-mix(in srgb,var(--accent) 88%,#fff)!important;color:#fff!important;border-color:transparent!important;transform:translateY(-1px)}
+.attach-menu .attach-wallet{background:var(--accent)!important;color:#fff!important;font-weight:800!important}
+.attach-menu .attach-wallet:hover{background:color-mix(in srgb,var(--accent) 88%,#fff)!important}
+
+.stock-wallet-body{max-width:960px!important;margin:0 auto!important}
+.wallet-balance-pill{background:color-mix(in srgb,var(--accent) 10%,var(--panel2));border:1px solid color-mix(in srgb,var(--accent) 28%,var(--line));color:var(--text);font-weight:850}
+.wallet-overview-head{display:flex;align-items:flex-end;justify-content:space-between;gap:18px;margin:4px 0 16px;padding:4px 2px}
+.wallet-overview-head>div{display:flex;flex-direction:column;gap:3px}.wallet-overview-head span{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--accent);font-weight:850}.wallet-overview-head h3{margin:0;font-size:25px;letter-spacing:-.03em}.wallet-overview-head p{margin:0;color:var(--muted);font-size:11px;max-width:520px;line-height:1.45}.wallet-market-cta{min-width:148px}
+.portfolio-summary{grid-template-columns:repeat(4,minmax(0,1fr))!important;gap:9px!important;margin-bottom:14px!important}
+.portfolio-summary>div{min-height:88px;padding:14px!important;background:var(--panel)!important;border-radius:16px!important;justify-content:center}
+.portfolio-summary>div.wallet-summary-main{border-color:color-mix(in srgb,var(--accent) 32%,var(--line));background:color-mix(in srgb,var(--accent) 6%,var(--panel))!important}
+.portfolio-summary span{font-size:10px!important}.portfolio-summary b{font-size:19px!important;letter-spacing:-.02em}.portfolio-summary small{font-size:9px;color:var(--muted);line-height:1.25}
+.wallet-gate-steps{display:grid;gap:6px;text-align:left;margin:0 auto 18px;max-width:360px}.wallet-gate-steps span{padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:var(--panel);font-size:10px;color:var(--muted)}
+.stock-list-row{transition:border-color .16s ease,background .16s ease,transform .16s ease}.stock-list-row:hover{transform:translateY(-1px);background:color-mix(in srgb,var(--accent) 3%,var(--panel2))}
+.stock-profile-toggle{margin-top:10px}.stock-profile-toggle.active{border-color:color-mix(in srgb,var(--accent) 55%,var(--line));color:var(--accent);background:color-mix(in srgb,var(--accent) 7%,var(--panel2))}
+
+.profile-stock-section{display:grid;gap:10px}.profile-stock-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
+.profile-stock-card{position:relative;min-width:0;border:1px solid var(--line);border-radius:15px;background:var(--panel2);overflow:hidden;transition:transform .15s ease,border-color .15s ease}.profile-stock-card:hover{transform:translateY(-1px);border-color:color-mix(in srgb,var(--accent) 38%,var(--line))}
+.profile-stock-main{width:100%;border:0;background:transparent;color:var(--text);display:grid;grid-template-columns:50px minmax(0,1fr);gap:10px;align-items:center;text-align:left;padding:11px;cursor:pointer}.profile-stock-avatar{width:50px!important;height:50px!important;border-radius:14px!important}.profile-stock-copy{display:flex;flex-direction:column;gap:3px;min-width:0}.profile-stock-copy>div{display:flex;align-items:center;gap:7px;min-width:0}.profile-stock-copy b{font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.profile-stock-copy .stock-growth{font-size:9px;white-space:nowrap}.profile-stock-copy small{color:var(--muted);font-size:9px}.profile-stock-copy strong{font-size:14px}.profile-stock-copy em{font-style:normal;font-weight:500;color:var(--muted);font-size:9px}.profile-stock-remove{position:absolute;right:6px;top:6px;width:25px;height:25px;border-radius:8px;border:1px solid var(--line);background:color-mix(in srgb,var(--panel) 92%,transparent);color:var(--muted);cursor:pointer}.profile-stock-remove:hover{color:#ef6464;border-color:rgba(239,100,100,.35)}
+.profile-stock-empty{grid-column:1/-1;padding:24px 14px;text-align:center;border:1px dashed var(--line);border-radius:14px;display:flex;flex-direction:column;gap:5px}.profile-stock-empty b{font-size:12px}.profile-stock-empty span{font-size:10px;color:var(--muted)}
+
+/* Quick support actions must stay visible above the composer. */
+.support-command-bar{z-index:140!important}
+
+@media(max-width:760px){
+  .portfolio-summary{grid-template-columns:1fr 1fr!important}.portfolio-summary>div{min-height:78px}.wallet-overview-head{align-items:stretch;flex-direction:column}.wallet-market-cta{width:100%}.profile-stock-grid{grid-template-columns:1fr}.sidebar-wallet-quick{box-shadow:none!important}
+}
+#sideWallet{color:var(--accent)}
+.profile-tabs{overflow-x:auto;scrollbar-width:none}.profile-tabs::-webkit-scrollbar{display:none}.profile-tabs button{white-space:nowrap;flex:0 0 auto}
+@media(max-width:760px){.public-profile-actions{align-items:stretch;flex-direction:column}.public-profile-actions>.primary{width:100%}.public-profile-actions .profile-tabs{width:100%;margin:4px 0 0}}
