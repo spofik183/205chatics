@@ -185,7 +185,7 @@ function renderMessage(m,{append=true}={}){
   const av=document.createElement('button'); av.className='avatar msg-avatar avatar-button'; setAvatar(av,m.sender); if(m.sender?.id)av.onclick=()=>openUserProfile(m.sender);
   const bubble=document.createElement('div'); bubble.className='bubble';
   const body=mediaMarkup(m)+(m.text?`<div class="text${m.type!=='text'?' caption':''}">${escapeHtml(m.text)}</div>`:'');
-  bubble.innerHTML=`<button class="name name-button">@${escapeHtml(m.sender?.username||'Пользователь')}${badge(m.sender)}</button>${replyMarkup(m)}${body}${m.anonymousRealSender?`<div class="anon-real">@${escapeHtml(m.anonymousRealSender.username)} · ${escapeHtml(m.anonymousRealSender.phone)}</div>`:''}${reactionsMarkup(m)}<div class="message-meta"><span>${formatTime(m.createdAt)}</span>${currentPeer?'':`<span class="message-views"><span class="eye-icon">◉</span><span class="view-count">${m.views||0}</span></span>`}<button class="more-btn" aria-label="More">⋯</button></div>`;
+  bubble.innerHTML=`<button class="name name-button">@${escapeHtml(m.sender?.username||'Пользователь')}${badge(m.sender)}</button>${replyMarkup(m)}${body}${m.anonymousRealSender?`<div class="anon-real">@${escapeHtml(m.anonymousRealSender.username)} · ${escapeHtml(m.anonymousRealSender.phone)}</div>`:''}${reactionsMarkup(m)}<div class="message-meta"><span>${formatTime(m.createdAt)}</span>${messageReceiptMarkup(m)}${currentPeer?'':`<span class="message-views"><span class="eye-icon">◉</span><span class="view-count">${m.views||0}</span></span>`}<button class="more-btn" aria-label="More">⋯</button></div>`;
   bubble.querySelector('.more-btn').onclick=e=>openMessageMenu(e.currentTarget,m);
   const nameBtn=bubble.querySelector('.name-button'); if(nameBtn&&m.sender?.id)nameBtn.onclick=()=>openUserProfile(m.sender);
   bubble.querySelectorAll('.reaction-chip').forEach(btn=>btn.onclick=()=>socket?.emit('react-message',{id:m.id,emoji:btn.dataset.emoji}));
@@ -451,7 +451,7 @@ function connect(){
   socket.on('private-chat-cleared',()=>{if(currentPeer)loadMessages()});
   socket.on('message-deleted',id=>document.querySelector(`.msg[data-id="${CSS.escape(id)}"]`)?.remove());
   socket.on('message-hidden',id=>document.querySelector(`.msg[data-id="${CSS.escape(id)}"]`)?.remove());
-  socket.on('message-views',x=>{const row=document.querySelector(`.msg[data-id="${CSS.escape(x.id)}"]`);if(row)row.querySelector('.view-count').textContent=x.views});
+  socket.on('message-views',applyMessageViewUpdate);
   socket.on('message-reactions',x=>{const row=document.querySelector(`.msg[data-id="${CSS.escape(x.id)}"]`);if(!row)return;const holder=row.querySelector('.reactions');const html=Object.entries(x.reactions||{}).filter(([,v])=>v.count).map(([e,v])=>`<button class="reaction-chip ${v.mine?'mine':''}" data-emoji="${e}">${e}${v.count}</button>`).join('');if(holder){holder.innerHTML=html;if(!html)holder.remove()}else if(html){const d=document.createElement('div');d.className='reactions';d.innerHTML=html;row.querySelector('.message-meta').before(d)}row.querySelectorAll('.reaction-chip').forEach(b=>b.onclick=()=>socket.emit('react-message',{id:x.id,emoji:b.dataset.emoji}))});
   socket.on('pin-changed',()=>loadMessages());
   socket.on('typing',x=>{
@@ -582,7 +582,7 @@ function renderMessage(m,{append=true}={}){
   const existing=document.querySelector(`.msg[data-id="${CSS.escape(m.id)}"]`); if(existing)existing.remove();
   const row=document.createElement('div'); row.className='msg'+(m.mine?' mine':''); row.dataset.id=m.id; const av=document.createElement('button'); av.className='avatar msg-avatar avatar-button'; setAvatar(av,m.sender); if(m.sender?.id)av.onclick=()=>openUserProfile(m.sender);
   const bubble=document.createElement('div'); bubble.className='bubble'; const body=mediaMarkup(m)+(m.text?`<div class="text${m.type!=='text'?' caption':''}">${escapeHtml(m.text)}</div>`:'');
-  bubble.innerHTML=`<button class="name name-button">@${escapeHtml(m.sender?.username||'Пользователь')}${badge(m.sender)}</button>${replyMarkup(m)}${body}${m.anonymousRealSender?`<div class="anon-real">@${escapeHtml(m.anonymousRealSender.username)} · ${escapeHtml(m.anonymousRealSender.phone)}</div>`:''}${reactionsMarkup(m)}<div class="message-meta"><span>${formatTime(m.createdAt)}</span>${currentPeer?'':`<span class="message-views"><span class="eye-icon">◉</span><span class="view-count">${m.views||0}</span></span>`}<button class="more-btn" aria-label="More">⋯</button></div>`;
+  bubble.innerHTML=`<button class="name name-button">@${escapeHtml(m.sender?.username||'Пользователь')}${badge(m.sender)}</button>${replyMarkup(m)}${body}${m.anonymousRealSender?`<div class="anon-real">@${escapeHtml(m.anonymousRealSender.username)} · ${escapeHtml(m.anonymousRealSender.phone)}</div>`:''}${reactionsMarkup(m)}<div class="message-meta"><span>${formatTime(m.createdAt)}</span>${messageReceiptMarkup(m)}${currentPeer?'':`<span class="message-views"><span class="eye-icon">◉</span><span class="view-count">${m.views||0}</span></span>`}<button class="more-btn" aria-label="More">⋯</button></div>`;
   bubble.querySelector('.more-btn').onclick=e=>openMessageMenu(e.currentTarget,m); const nameBtn=bubble.querySelector('.name-button'); if(nameBtn&&m.sender?.id)nameBtn.onclick=()=>openUserProfile(m.sender); bubble.querySelectorAll('.reaction-chip').forEach(btn=>btn.onclick=()=>socket?.emit('react-message',{id:m.id,emoji:btn.dataset.emoji}));bubble.querySelectorAll('[data-poll-option]').forEach(btn=>btn.onclick=()=>socket?.emit('vote-poll',{id:m.id,optionId:btn.dataset.pollOption}));
   row.append(av,bubble); if(append)$('#messages').appendChild(row); observeMessage(row,m); if(!currentPeer)$('#lastPreview').textContent=`@${m.sender?.username||''}: ${compactText(m)}`.slice(0,44); return row;
 }
@@ -698,7 +698,7 @@ function connect(){
   socket.on('message',async m=>{if(messageBelongsCurrent(m)){renderMessage(m);requestAnimationFrame(()=>{$('#messages').scrollTop=$('#messages').scrollHeight})}if(m.chatType==='private')await loadContacts()});
   socket.on('private-chat-cleared',()=>{if(currentPeer)loadMessages()});
   socket.on('message-deleted',id=>document.querySelector(`.msg[data-id="${CSS.escape(id)}"]`)?.remove());socket.on('message-hidden',id=>document.querySelector(`.msg[data-id="${CSS.escape(id)}"]`)?.remove());
-  socket.on('message-views',x=>{const row=document.querySelector(`.msg[data-id="${CSS.escape(x.id)}"]`);if(row)row.querySelector('.view-count')&&(row.querySelector('.view-count').textContent=x.views)});
+  socket.on('message-views',applyMessageViewUpdate);
   socket.on('message-reactions',x=>{const row=document.querySelector(`.msg[data-id="${CSS.escape(x.id)}"]`);if(!row)return;const holder=row.querySelector('.reactions');const html=Object.entries(x.reactions||{}).filter(([,v])=>v.count).map(([e,v])=>`<button class="reaction-chip ${v.mine?'mine':''}" data-emoji="${e}">${e}${v.count}</button>`).join('');if(holder){holder.innerHTML=html;if(!html)holder.remove()}else if(html){const d=document.createElement('div');d.className='reactions';d.innerHTML=html;row.querySelector('.message-meta').before(d)}row.querySelectorAll('.reaction-chip').forEach(b=>b.onclick=()=>socket.emit('react-message',{id:x.id,emoji:b.dataset.emoji}))});
   socket.on('pin-changed',()=>loadMessages());socket.on('typing',x=>{if(supportMode||x.userId===me.id)return;const relevant=currentPeer?(x.peerId===me.id&&x.userId===currentPeer):(!x.peerId);if(!relevant)return;$('#typing').textContent=x.isTyping?`@${x.username} ${lang==='ru'?'печатает…':'is typing…'}`:''});
   socket.on('user-updated',async u=>{if(u.id===me.id){me={...me,...u};syncMeUI()}contacts=contacts.map(c=>c.id===u.id?{...c,...u}:c);if(currentPeerUser?.id===u.id)currentPeerUser={...currentPeerUser,...u};if(supportUser?.id===u.id)supportUser={...supportUser,...u};renderContacts();updateChatHeader()});
@@ -1409,3 +1409,16 @@ const v17ConnectBase=connect;connect=function(){v17ConnectBase();socket?.on('cha
 
 // ========================= 205chating 0.2.0v — UX/report polish =========================
 $('#sideWallet')?.addEventListener('click',()=>{ $('#sideMenu')?.classList.add('hidden');$('#sidebar')?.classList.remove('mobile-open');openStockWallet?.(); });
+
+
+// 0.2.1v — private message delivery receipts
+function messageReceiptMarkup(m){
+  if(!currentPeer||!m?.mine||m.chatType!=='private')return '';
+  const read=!!m.read;
+  return `<span class="message-receipt ${read?'read':''}" title="${read?'Прочитано':'Отправлено'}" aria-label="${read?'Прочитано':'Отправлено'}">${read?'✓✓':'✓'}</span>`;
+}
+function applyMessageViewUpdate(x){
+  const row=document.querySelector(`.msg[data-id="${CSS.escape(x.id)}"]`);if(!row)return;
+  const count=row.querySelector('.view-count');if(count)count.textContent=x.views||0;
+  if(x.read){const receipt=row.querySelector('.message-receipt');if(receipt){receipt.textContent='✓✓';receipt.classList.add('read');receipt.title='Прочитано';receipt.setAttribute('aria-label','Прочитано')}}
+}

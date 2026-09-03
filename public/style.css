@@ -378,3 +378,55 @@ html{scroll-behavior:smooth}body{-webkit-font-smoothing:antialiased;text-renderi
 input:focus,textarea:focus,select:focus{outline:none;border-color:color-mix(in srgb,var(--accent) 45%,var(--line));box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 7%,transparent)}
 .primary,.small-primary{font-weight:780;letter-spacing:-.01em}.secondary{font-weight:700}
 .bubble{border-radius:17px}.contact-item,.chat-item{border:1px solid transparent}.contact-item:hover,.chat-item:hover{border-color:color-mix(in srgb,var(--line) 80%,transparent)}
+
+/* ========================= 0.2.1v — market cards + receipts ========================= */
+.message-receipt{display:inline-flex;align-items:center;justify-content:center;min-width:15px;margin-left:1px;color:var(--muted);font-size:11px;font-weight:900;letter-spacing:-2px;line-height:1;user-select:none}
+.message-receipt.read{color:var(--accent)}
+
+.stock-market-grid{grid-template-columns:repeat(auto-fill,minmax(225px,1fr));gap:12px}
+.stock-market-card{display:flex!important;flex-direction:column;gap:12px;padding:14px!important;text-align:left;cursor:default;border-radius:18px!important;background:var(--panel)!important}
+.stock-card-main{display:grid;grid-template-columns:72px minmax(0,1fr);gap:13px;align-items:center;width:100%;padding:0;border:0;background:none;color:inherit;text-align:left;cursor:pointer}
+.stock-market-avatar{width:72px!important;height:72px!important;border-radius:18px!important;font-size:17px!important;box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--line) 88%,transparent)}
+.stock-card-copy{min-width:0;display:flex;flex-direction:column;gap:4px}
+.stock-card-title-row{display:flex;align-items:center;gap:7px;min-width:0}
+.stock-card-title-row>b{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:15px;letter-spacing:-.015em}
+.stock-card-title-row>.stock-growth{flex:0 0 auto;font-size:10px;font-weight:850}
+.stock-card-maker{font-size:10px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.stock-unit-price{display:flex;align-items:baseline;gap:6px;margin-top:7px}
+.stock-unit-price span{font-size:9px;color:var(--muted)}
+.stock-unit-price strong{font-size:20px;letter-spacing:-.035em}
+.stock-card-buy{width:100%;height:39px;border-radius:11px!important;font-size:12px;font-weight:850}
+
+.stock-detail-card{width:min(590px,calc(100vw - 28px))!important;border-radius:22px!important}
+.stock-detail-hero{display:grid!important;grid-template-columns:88px minmax(0,1fr);align-items:center;gap:16px;padding:13px!important;border:1px solid var(--line);border-radius:18px;background:var(--panel2)}
+.stock-detail-hero .stock-avatar.large{width:88px!important;height:88px!important;border-radius:21px!important;font-size:20px}
+.stock-detail-price{font-size:27px!important}
+.stock-detail-hero .stock-growth{font-size:11px;font-weight:850}
+.stock-chart-card{margin-top:12px}
+.stock-trade-box{grid-template-columns:minmax(105px,.65fr) minmax(190px,1.2fr)!important;gap:10px!important}
+.stock-trade-actions{grid-column:1/-1;display:grid!important;grid-template-columns:1fr 1fr;gap:8px!important}
+.stock-trade-actions button{width:100%;min-width:0!important}
+.stock-trade-quote small{display:block;color:var(--muted);font-size:10px;line-height:1.35}
+.stock-trade-quote strong{font-size:15px!important}
+.stock-trade-box input{font-size:16px;font-weight:800}
+.stock-growth.up{color:#32b66a!important}.stock-growth.down{color:#e85c66!important}.stock-growth.flat{color:var(--muted)!important}
+.stock-overlay-modal{align-items:center!important;justify-content:center!important;padding:14px!important}
+.stock-overlay-modal .modal-card{margin:auto!important}
+
+@media(max-width:640px){
+  .stock-market-grid{grid-template-columns:1fr 1fr!important;gap:9px!important}
+  .stock-market-card{padding:11px!important;gap:10px}
+  .stock-card-main{grid-template-columns:54px minmax(0,1fr);gap:9px}
+  .stock-market-avatar{width:54px!important;height:54px!important;border-radius:15px!important}
+  .stock-card-title-row{align-items:flex-start;flex-direction:column;gap:2px}
+  .stock-card-title-row>b{width:100%;font-size:13px}
+  .stock-card-title-row>.stock-growth{font-size:9px}
+  .stock-unit-price{margin-top:4px;gap:4px}.stock-unit-price strong{font-size:17px}.stock-card-maker{display:none}
+  .stock-card-buy{height:37px}
+  .stock-overlay-modal{align-items:center!important;padding:10px!important}
+  .stock-overlay-modal .modal-card{width:100%!important;max-width:100%!important;max-height:calc(100dvh - 20px)!important;border-radius:20px!important;border:1px solid var(--line)!important;padding:14px!important}
+  .stock-detail-hero{grid-template-columns:68px minmax(0,1fr);gap:12px;padding:11px!important}
+  .stock-detail-hero .stock-avatar.large{width:68px!important;height:68px!important;border-radius:18px!important}.stock-detail-price{font-size:22px!important}
+  .stock-trade-box{grid-template-columns:1fr!important}.stock-trade-actions{grid-column:auto}
+}
+@media(max-width:390px){.stock-market-grid{grid-template-columns:1fr!important}.stock-card-main{grid-template-columns:62px minmax(0,1fr)}.stock-market-avatar{width:62px!important;height:62px!important}.stock-card-title-row{flex-direction:row;align-items:center}.stock-card-maker{display:block}}

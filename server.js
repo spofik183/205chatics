@@ -25,7 +25,7 @@ const PURCHASE_PACKAGES = [
   { id:'s750', berries:750, rub:239 }
 ];
 const PAYMENT_PHONE = '+79811292091';
-const APP_VERSION = '0.2.0v';
+const APP_VERSION = '0.2.1v';
 const IS_PROD = process.env.NODE_ENV === 'production';
 
 app.disable('x-powered-by');
@@ -60,7 +60,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 function defaultDb(){
   return {
     users: [], messages: [], gifts: [], purchases: [], supportThreads: {},
-    giftCatalog: [], referrals: [], premiumRequests: [], channels: [], stocks: [], stockHoldings: {}, stockTrades: [], stockPricingVersion: 2, reports: [], maintenanceUntil: null,
+    giftCatalog: [], referrals: [], premiumRequests: [], channels: [], stocks: [], stockHoldings: {}, stockTrades: [], stockPricingVersion: 3, reports: [], maintenanceUntil: null,
     channel: { name:'205chat', avatarUrl:'', description:'Общий чат 205chating', verified:true }
   };
 }
@@ -84,16 +84,17 @@ function loadDb(){
     parsed.stocks = parsed.stocks.map(st=>({
       id:st.id||crypto.randomUUID(), name:String(st.name||'Акция').trim().slice(0,40), avatarUrl:st.avatarUrl||'', creatorId:st.creatorId||null,
       verified:!!st.verified, circulating:Math.max(0,Math.trunc(Number(st.circulating)||0)), createdAt:st.createdAt||new Date().toISOString(),
-      priceHistory:Array.isArray(st.priceHistory)&&st.priceHistory.length?st.priceHistory.map(x=>({at:x.at||new Date().toISOString(),price:Math.max(.01,Number(x.price)||.01)})).slice(-240):[{at:new Date().toISOString(),price:.01}]
+      priceHistory:Array.isArray(st.priceHistory)&&st.priceHistory.length?st.priceHistory.map(x=>({at:x.at||new Date().toISOString(),price:Math.max(.01,Math.round((Number(x.price)||.01)*100)/100),rawPrice:Math.max(.01,Number(x.rawPrice ?? x.price)||.01)})).slice(-240):[{at:new Date().toISOString(),price:.01,rawPrice:.01}]
     })).filter(st=>st.creatorId&&st.name);
-    // 0.2.0v pricing migration: old exponential history would otherwise show a fake crash.
-    if(parsed.stockPricingVersion!==2){
-      const now=new Date().toISOString();
+    // 0.2.1v: непрерывная степенная кривая спроса. Она не имеет потолка,
+    // а история сбрасывается один раз, чтобы смена модели не рисовала ложный скачок.
+    if(parsed.stockPricingVersion!==3){
+      const now=new Date().toISOString(),base=.01,scale=.000012,power=.72;
       for(const st of parsed.stocks){
-        const price=Math.max(.01,Math.round((.01*(1+.0035*Math.sqrt(Math.max(0,Number(st.circulating)||0))))*10000)/10000);
-        st.priceHistory=[{at:now,price}];
+        const raw=Math.max(base,base+scale*Math.pow(Math.max(0,Number(st.circulating)||0),power));
+        st.priceHistory=[{at:now,price:Math.max(.01,Math.round(raw*100)/100),rawPrice:raw}];
       }
-      parsed.stockPricingVersion=2;
+      parsed.stockPricingVersion=3;
     }
     if(!parsed.stockHoldings || typeof parsed.stockHoldings!=='object' || Array.isArray(parsed.stockHoldings))parsed.stockHoldings={};
     parsed.stockTrades = (Array.isArray(parsed.stockTrades)?parsed.stockTrades:[]).slice(-5000);
@@ -104,10 +105,10 @@ function loadDb(){
     parsed.channel ||= {name:'205chat',avatarUrl:'',description:'Общий чат 205chating',verified:true};
     parsed.channel.name='205chat'; parsed.channel.verified=true; parsed.channel.avatarUrl ||= ''; parsed.channel.description ||= 'Общий чат 205chating';
     for(const u of parsed.users){
-      u.contacts ||= []; u.blocked ||= []; u.avatarUrl ||= ''; u.bio ||= ''; u.hidePhone = !!u.hidePhone; u.online = false; u.strawberries = Math.max(0,Number(u.strawberries)||0); u.featuredGiftId ||= null; u.premiumUntil ||= null; u.stockWalletOpened=!!u.stockWalletOpened;
+      u.contacts ||= []; u.blocked ||= []; u.avatarUrl ||= ''; u.bio ||= ''; u.hidePhone = !!u.hidePhone; u.online = false; u.strawberries = Math.max(0,Math.round((Number(u.strawberries)||0)*100)/100); u.featuredGiftId ||= null; u.premiumUntil ||= null; u.stockWalletOpened=!!u.stockWalletOpened;
     }
     for(const m of parsed.messages){
-      m.chatType ||= 'global'; m.recipientId ||= null; m.channelId ||= null; m.viewers ||= []; m.reactions ||= {}; m.hiddenFor ||= []; m.replyTo ||= null; m.pinned = !!m.pinned; m.giftId ||= null; m.poll ||= null;
+      m.chatType ||= 'global'; m.recipientId ||= null; m.channelId ||= null; m.viewers ||= []; m.reactions ||= {}; m.hiddenFor ||= []; m.replyTo ||= null; m.pinned = !!m.pinned; m.giftId ||= null; m.poll ||= null; m.readAt ||= null;
     }
     for(const [uid,thread] of Object.entries(parsed.supportThreads)){
       thread.userId ||= uid; thread.visible = thread.visible !== false; thread.messages ||= []; thread.createdAt ||= new Date().toISOString();
@@ -139,26 +140,53 @@ const premiumPlan = months => ({1:139,3:319,6:509}[Number(months)]||null);
 const channelFor = id => db.channels.find(c=>c.id===id)||null;
 function canAccessChannel(c,u){return !!c&&(c.isPublic||c.ownerId===u.id||(c.members||[]).includes(u.id));}
 const STOCK_BASE_PRICE = 0.01;
-// 0.2.0v: deliberately gentle demand curve. Buying still moves the market,
-// but one large order no longer makes the price explode.
-const STOCK_DEMAND_SLOPE = 0.0035;
-const STOCK_SELL_FACTOR = 0.985;
+// 0.2.1v — внутренняя игровая биржа.
+// Цена = 0.01 + scale * circulating^power: кривая растёт без потолка,
+// но предельный эффект каждой следующей покупки становится мягче.
+const STOCK_CURVE_SCALE = 0.000012;
+const STOCK_CURVE_POWER = 0.72;
+const STOCK_BUY_FEE_RATE = 0.02;
+const STOCK_SELL_FEE_RATE = 0.025;
+const STOCK_MIN_BUY_FEE = 0.01;
 const STOCK_MAX_CREATED = 3;
-const roundBerry = n => Math.max(0,Math.round((Number(n)||0)*10000)/10000);
+const STOCK_MAX_ORDER = 5000;
+const roundBerry = n => Math.max(0,Math.round((Number(n)||0)*100)/100);
+const roundRawStock = n => Math.max(STOCK_BASE_PRICE,Math.round((Number(n)||STOCK_BASE_PRICE)*1e8)/1e8);
 const stockFor = id => db.stocks.find(s=>s.id===id)||null;
-function stockPriceAtCirculating(circulating){
+function stockPriceRawAtCirculating(circulating){
   const c=Math.max(0,Number(circulating)||0);
-  return Math.max(STOCK_BASE_PRICE,roundBerry(STOCK_BASE_PRICE*(1+STOCK_DEMAND_SLOPE*Math.sqrt(c))));
+  return roundRawStock(STOCK_BASE_PRICE + STOCK_CURVE_SCALE*Math.pow(c,STOCK_CURVE_POWER));
 }
+function stockPriceAtCirculating(circulating){return Math.max(STOCK_BASE_PRICE,roundBerry(stockPriceRawAtCirculating(circulating)))}
+function stockPriceRaw(stock){return stockPriceRawAtCirculating(stock?.circulating)}
 function stockPrice(stock){return stockPriceAtCirculating(stock?.circulating)}
-function stockCurveCost(start,qty){
-  start=Math.max(0,Math.trunc(Number(start)||0));qty=Math.max(0,Math.trunc(Number(qty)||0));
-  return roundBerry(stockPriceAtCirculating(start)*qty);
+function stockCurveGross(fromCirculating,toCirculating){
+  const a=Math.max(0,Number(fromCirculating)||0),b=Math.max(0,Number(toCirculating)||0);
+  const lo=Math.min(a,b),hi=Math.max(a,b);if(hi<=lo)return 0;
+  const variable=STOCK_CURVE_SCALE/(STOCK_CURVE_POWER+1)*(Math.pow(hi,STOCK_CURVE_POWER+1)-Math.pow(lo,STOCK_CURVE_POWER+1));
+  return Math.max(0,STOCK_BASE_PRICE*(hi-lo)+variable);
+}
+function stockTradeQuote(stock,type,qty){
+  qty=Math.max(0,Math.trunc(Number(qty)||0));const before=Math.max(0,Math.trunc(Number(stock?.circulating)||0));
+  const after=type==='buy'?before+qty:Math.max(0,before-qty);const rawBefore=stockPriceRawAtCirculating(before),rawAfter=stockPriceRawAtCirculating(after);
+  const grossRaw=stockCurveGross(before,after);const gross=roundBerry(grossRaw);
+  const fee=type==='buy'?roundBerry(Math.max(STOCK_MIN_BUY_FEE,grossRaw*STOCK_BUY_FEE_RATE)):roundBerry(grossRaw*STOCK_SELL_FEE_RATE);
+  const total=type==='buy'?roundBerry(grossRaw+Math.max(STOCK_MIN_BUY_FEE,grossRaw*STOCK_BUY_FEE_RATE)):roundBerry(Math.max(0,grossRaw-grossRaw*STOCK_SELL_FEE_RATE));
+  return {type,qty,total,gross,fee,priceBefore:Math.max(STOCK_BASE_PRICE,roundBerry(rawBefore)),priceAfter:Math.max(STOCK_BASE_PRICE,roundBerry(rawAfter)),rawPriceBefore:rawBefore,rawPriceAfter:rawAfter,averagePrice:qty?roundBerry(total/qty):0};
 }
 function stockHolding(userId,stockId){return Math.max(0,Math.trunc(Number(db.stockHoldings?.[userId]?.[stockId])||0))}
 function setStockHolding(userId,stockId,qty){db.stockHoldings[userId] ||= {};qty=Math.max(0,Math.trunc(Number(qty)||0));if(qty)db.stockHoldings[userId][stockId]=qty;else delete db.stockHoldings[userId][stockId]}
-function recordStockPoint(stock){stock.priceHistory ||= [];const price=stockPrice(stock);const last=stock.priceHistory[stock.priceHistory.length-1];if(!last||last.price!==price||Date.now()-new Date(last.at).getTime()>300000)stock.priceHistory.push({at:new Date().toISOString(),price});stock.priceHistory=stock.priceHistory.slice(-240)}
-function stockHourStats(stock){const now=Date.now(),cut=now-3600000,history=stock.priceHistory||[];const current=stockPrice(stock);let anchor=history[0]?.price||STOCK_BASE_PRICE;for(const p of history){const t=new Date(p.at).getTime();if(t<=cut)anchor=p.price;else break}anchor=Math.max(STOCK_BASE_PRICE,Number(anchor)||STOCK_BASE_PRICE);const growth=Math.round(((current-anchor)/anchor)*10000)/100;const volume=db.stockTrades.filter(t=>t.stockId===stock.id&&new Date(t.createdAt).getTime()>=cut).reduce((a,t)=>a+Math.abs(Number(t.qty)||0),0);let forecast='Стабильно';if(growth>=8)forecast='Сильный рост';else if(growth>=2)forecast='Растёт';else if(growth<=-8)forecast='Сильный откат';else if(growth<=-2)forecast='Снижается';else if(volume>=100)forecast='Высокая активность';return {growth1h:growth,volume1h:volume,forecast}}
+function recordStockPoint(stock){stock.priceHistory ||= [];const rawPrice=stockPriceRaw(stock),price=stockPrice(stock),last=stock.priceHistory[stock.priceHistory.length-1];if(!last||Math.abs((Number(last.rawPrice ?? last.price)||0)-rawPrice)>1e-8||Date.now()-new Date(last.at).getTime()>300000)stock.priceHistory.push({at:new Date().toISOString(),price,rawPrice});stock.priceHistory=stock.priceHistory.slice(-240)}
+function stockHourStats(stock){
+  const now=Date.now(),cut=now-3600000,history=stock.priceHistory||[],currentRaw=stockPriceRaw(stock);let anchorRaw=Number(history[0]?.rawPrice ?? history[0]?.price)||STOCK_BASE_PRICE;
+  for(const p of history){const t=new Date(p.at).getTime();if(t<=cut)anchorRaw=Number(p.rawPrice ?? p.price)||anchorRaw;else break}
+  anchorRaw=Math.max(STOCK_BASE_PRICE,anchorRaw);const growth=Math.round(((currentRaw-anchorRaw)/anchorRaw)*10000)/100;
+  const trades=db.stockTrades.filter(t=>t.stockId===stock.id&&new Date(t.createdAt).getTime()>=cut);let buyVolume=0,sellVolume=0;
+  for(const t of trades){if(t.type==='buy')buyVolume+=Math.abs(Number(t.qty)||0);else if(t.type==='sell')sellVolume+=Math.abs(Number(t.qty)||0)}
+  const volume=buyVolume+sellVolume,netVolume=buyVolume-sellVolume;let forecast='Баланс спроса и продаж';
+  if(!volume)forecast='Пока без сделок';else if(netVolume>Math.max(10,volume*.35)&&growth>0)forecast='Покупатели активнее';else if(netVolume< -Math.max(10,volume*.35)&&growth<0)forecast='Продавцы активнее';else if(growth>=4)forecast='Устойчивый рост';else if(growth>=1)forecast='Умеренный рост';else if(growth<=-4)forecast='Заметный откат';else if(growth<=-1)forecast='Умеренный откат';
+  return {growth1h:growth,volume1h:volume,buyVolume1h:buyVolume,sellVolume1h:sellVolume,netVolume1h:netVolume,forecast};
+}
 function deleteStockWithRefund(stock){if(!stock)return 0;const price=stockPrice(stock);let refunded=0;for(const [uid,portfolio] of Object.entries(db.stockHoldings||{})){const qty=Math.max(0,Math.trunc(Number(portfolio?.[stock.id])||0));if(!qty)continue;const u=db.users.find(x=>x.id===uid);if(u){const amount=roundBerry(price*qty);u.strawberries=roundBerry((Number(u.strawberries)||0)+amount);refunded=roundBerry(refunded+amount)}delete portfolio[stock.id]}db.stocks=db.stocks.filter(x=>x.id!==stock.id);db.stockTrades=db.stockTrades.filter(t=>t.stockId!==stock.id);return refunded}
 function removeUserStockHoldings(userId){const portfolio=db.stockHoldings?.[userId]||{};for(const [stockId,qtyRaw] of Object.entries(portfolio)){const stock=stockFor(stockId),qty=Math.max(0,Math.trunc(Number(qtyRaw)||0));if(stock&&qty){stock.circulating=Math.max(0,(Number(stock.circulating)||0)-qty);recordStockPoint(stock)}}delete db.stockHoldings[userId]}
 function giftSummary(id){
@@ -174,7 +202,7 @@ function stockSummary(stock,viewer,{history=false}={}){
   const creator=db.users.find(u=>u.id===stock.creatorId);const stats=stockHourStats(stock);const result={
     id:stock.id,name:stock.name,avatarUrl:stock.avatarUrl||'',verified:!!stock.verified,creator:creator?cleanUser(creator,viewer):{id:null,username:'Удалён'},
     creatorId:stock.creatorId,createdAt:stock.createdAt,circulating:Math.max(0,Math.trunc(Number(stock.circulating)||0)),price:stockPrice(stock),
-    growth1h:stats.growth1h,volume1h:stats.volume1h,forecast:stats.forecast,owned:viewer?stockHolding(viewer.id,stock.id):0,mine:!!viewer&&stock.creatorId===viewer.id
+    growth1h:stats.growth1h,volume1h:stats.volume1h,buyVolume1h:stats.buyVolume1h,sellVolume1h:stats.sellVolume1h,netVolume1h:stats.netVolume1h,forecast:stats.forecast,owned:viewer?stockHolding(viewer.id,stock.id):0,mine:!!viewer&&stock.creatorId===viewer.id
   };
   if(history)result.history=(stock.priceHistory||[]).slice(-120);
   return result;
@@ -349,7 +377,7 @@ function serializeMessage(m,viewer){
     id:m.id,text:m.text||'',type:m.type||'text',mediaUrl:m.mediaUrl||'',fileName:m.fileName||'',mime:m.mime||'',createdAt:m.createdAt,
     anonymous:!!m.anonymous,mine:viewer.id===m.userId,sender:hiddenByAnon?anonymousSender:visibleSender,
     anonymousRealSender:m.anonymous&&viewer.isAdmin&&sender?{id:sender.id,username:sender.username,phone:sender.phone}:null,
-    chatType:m.chatType||'global',recipientId:m.recipientId||null,channelId:m.channelId||null,views:(m.viewers||[]).length,reactions,pinned:!!m.pinned,
+    chatType:m.chatType||'global',recipientId:m.recipientId||null,channelId:m.channelId||null,views:(m.viewers||[]).length,read:(m.chatType||'global')==='private'&&!!m.readAt,readAt:m.readAt||null,reactions,pinned:!!m.pinned,
     gift:gift&&giftInfo?{...giftInfo,letter:gift.letter||'',sender:giftSender?cleanUser(giftSender):null}:null,
     poll:m.poll?{question:m.poll.question,options:(m.poll.options||[]).map(o=>({id:o.id,text:o.text,count:(o.voters||[]).length,mine:(o.voters||[]).includes(viewer.id)}))}:null,
     replyTo:reply?{id:reply.id,text:(reply.text||({image:'Фото',video:'Видео',audio:'Голосовое',gift:'Подарок'}[reply.type]||'')).slice(0,90),sender:replySender?.username||'Пользователь'}:null
@@ -378,7 +406,7 @@ app.post('/api/gifts/send',auth,(req,res)=>{
   if(req.user.strawberries<def.price)return res.status(400).json({error:`Не хватает клубничек: нужно ${def.price}🍓`});
   req.user.strawberries-=def.price; def.remaining=Math.max(0,(Number(def.remaining)||0)-1); const issued=(Number(def.totalSupply)||0)-def.remaining;
   const g={id:crypto.randomUUID(),giftKey:def.key,senderId:req.user.id,receiverId:recipient.id,letter,price:def.price,serial:def.type==='nft'?issued:null,createdAt:new Date().toISOString()}; db.gifts.push(g);
-  const m={id:crypto.randomUUID(),userId:req.user.id,text:'',type:'gift',mediaUrl:'',fileName:'',mime:'',anonymous:false,chatType:'private',recipientId:recipient.id,createdAt:new Date().toISOString(),viewers:[],reactions:{},hiddenFor:[],replyTo:null,pinned:false,giftId:g.id};
+  const m={id:crypto.randomUUID(),userId:req.user.id,text:'',type:'gift',mediaUrl:'',fileName:'',mime:'',anonymous:false,chatType:'private',recipientId:recipient.id,createdAt:new Date().toISOString(),viewers:[],reactions:{},hiddenFor:[],replyTo:null,pinned:false,giftId:g.id,readAt:null};
   db.messages.push(m); if(db.messages.length>5000)db.messages=db.messages.slice(-5000); saveDb();
   io.emit('user-updated',cleanUser(req.user)); emitToViewers('message',m,viewer=>serializeMessage(m,viewer)); res.json({ok:true,balance:req.user.strawberries,gift:{...giftSummary(g.id),letter},message:serializeMessage(m,req.user)});
 });
@@ -572,7 +600,7 @@ app.get('/api/stocks/wallet',auth,(req,res)=>{
   }
   const holdings=Object.entries(portfolio).map(([id,qtyRaw])=>{
     const st=stockFor(id);if(!st)return null;
-    const qty=Math.max(0,Math.trunc(Number(qtyRaw)||0)),value=roundBerry(stockPrice(st)*qty),pos=positionBasis(id);
+    const qty=Math.max(0,Math.trunc(Number(qtyRaw)||0)),value=qty?stockTradeQuote(st,'sell',qty).total:0,pos=positionBasis(id);
     const basis=pos.qty===qty?pos.basis:roundBerry((pos.avgPrice||stockPrice(st))*qty);
     const pnl=roundBerry(value-basis),pnlPct=basis?Math.round((pnl/basis)*10000)/100:0;
     return {...stockSummary(st,req.user,{history:true}),qty,value,basis,avgPrice:qty?roundBerry(basis/qty):0,pnl,pnlPct};
@@ -588,12 +616,13 @@ app.post('/api/stocks',auth,upload.single('avatar'),(req,res)=>{
   const name=String(req.body.name||'').trim().slice(0,40);if(name.length<2)return res.status(400).json({error:'Название акции слишком короткое'});
   if(!req.file)return res.status(400).json({error:'Загрузите аватарку акции'});
   const ext=path.extname(req.file.originalname||'').toLowerCase(),mime=String(req.file.mimetype||'').toLowerCase();if(!mime.startsWith('image/')&&!['.jpg','.jpeg','.png','.webp','.gif','.avif'].includes(ext)){fs.unlink(req.file.path,()=>{});return res.status(400).json({error:'Аватарка должна быть изображением'});}
-  const now=new Date().toISOString();const stock={id:crypto.randomUUID(),name,avatarUrl:`/uploads/${req.file.filename}`,creatorId:req.user.id,verified:false,circulating:0,createdAt:now,priceHistory:[{at:now,price:STOCK_BASE_PRICE}]};db.stocks.push(stock);req.user.stockWalletOpened=true;saveDb();io.emit('stocks-updated');res.json({stock:stockSummary(stock,req.user,{history:true}),user:cleanUser(req.user,req.user)});
+  const now=new Date().toISOString();const stock={id:crypto.randomUUID(),name,avatarUrl:`/uploads/${req.file.filename}`,creatorId:req.user.id,verified:false,circulating:0,createdAt:now,priceHistory:[{at:now,price:STOCK_BASE_PRICE,rawPrice:STOCK_BASE_PRICE}]};db.stocks.push(stock);req.user.stockWalletOpened=true;saveDb();io.emit('stocks-updated');res.json({stock:stockSummary(stock,req.user,{history:true}),user:cleanUser(req.user,req.user)});
 });
 app.patch('/api/stocks/:id/avatar',auth,upload.single('avatar'),(req,res)=>{const stock=stockFor(req.params.id);if(!stock)return res.status(404).json({error:'Акция не найдена'});if(stock.creatorId!==req.user.id)return res.status(403).json({error:'Настройки доступны создателю акции'});if(!req.file)return res.status(400).json({error:'Выберите изображение'});const ext=path.extname(req.file.originalname||'').toLowerCase(),mime=String(req.file.mimetype||'').toLowerCase();if(!mime.startsWith('image/')&&!['.jpg','.jpeg','.png','.webp','.gif','.avif'].includes(ext)){fs.unlink(req.file.path,()=>{});return res.status(400).json({error:'Нужно изображение'});}stock.avatarUrl=`/uploads/${req.file.filename}`;saveDb();io.emit('stocks-updated');res.json({stock:stockSummary(stock,req.user,{history:true})})});
 app.delete('/api/stocks/:id',auth,(req,res)=>{const stock=stockFor(req.params.id);if(!stock)return res.status(404).json({error:'Акция не найдена'});if(stock.creatorId!==req.user.id&&!req.user.isAdmin)return res.status(403).json({error:'Недостаточно прав'});const refunded=deleteStockWithRefund(stock);saveDb();io.emit('stocks-updated');io.emit('balances-updated');res.json({ok:true,refunded})});
-app.post('/api/stocks/:id/buy',auth,writeRateLimit,(req,res)=>{const stock=stockFor(req.params.id);if(!stock)return res.status(404).json({error:'Акция не найдена'});if(!req.user.stockWalletOpened)return res.status(403).json({error:'Сначала откройте кошелёк акций'});if(stock.creatorId===req.user.id)return res.status(400).json({error:'Создатель не может покупать собственную акцию'});const qty=Math.trunc(Number(req.body.qty));if(!Number.isFinite(qty)||qty<1||qty>5000)return res.status(400).json({error:'Количество: от 1 до 5000'});const before=Math.max(0,Math.trunc(Number(stock.circulating)||0));if(before+qty>20000)return res.status(400).json({error:'Для этой акции достигнут лимит выпуска'});const unitPrice=stockPrice(stock);const cost=roundBerry(unitPrice*qty);req.user.strawberries=roundBerry(req.user.strawberries);if(req.user.strawberries+1e-9<cost)return res.status(400).json({error:`Не хватает клубничек: нужно ${cost}🍓`});req.user.strawberries=roundBerry(req.user.strawberries-cost);setStockHolding(req.user.id,stock.id,stockHolding(req.user.id,stock.id)+qty);stock.circulating=before+qty;recordStockPoint(stock);const trade={id:crypto.randomUUID(),stockId:stock.id,userId:req.user.id,type:'buy',qty,total:cost,priceBefore:unitPrice,priceAfter:stockPrice(stock),createdAt:new Date().toISOString()};db.stockTrades.push(trade);db.stockTrades=db.stockTrades.slice(-5000);saveDb();io.emit('stocks-updated');io.emit('user-updated',cleanUser(req.user));res.json({stock:stockSummary(stock,req.user,{history:true}),holding:stockHolding(req.user.id,stock.id),balance:roundBerry(req.user.strawberries),trade})});
-app.post('/api/stocks/:id/sell',auth,writeRateLimit,(req,res)=>{const stock=stockFor(req.params.id);if(!stock)return res.status(404).json({error:'Акция не найдена'});if(!req.user.stockWalletOpened)return res.status(403).json({error:'Сначала откройте кошелёк акций'});const qty=Math.trunc(Number(req.body.qty)),owned=stockHolding(req.user.id,stock.id);if(!Number.isFinite(qty)||qty<1||qty>owned)return res.status(400).json({error:`Можно продать от 1 до ${owned}`});const before=Math.max(0,Math.trunc(Number(stock.circulating)||0));const start=Math.max(0,before-qty);const unitAfter=stockPriceAtCirculating(start);const payout=roundBerry(unitAfter*qty*STOCK_SELL_FACTOR);setStockHolding(req.user.id,stock.id,owned-qty);stock.circulating=start;req.user.strawberries=roundBerry((Number(req.user.strawberries)||0)+payout);recordStockPoint(stock);const trade={id:crypto.randomUUID(),stockId:stock.id,userId:req.user.id,type:'sell',qty,total:payout,priceBefore:stockPriceAtCirculating(before),priceAfter:stockPrice(stock),createdAt:new Date().toISOString()};db.stockTrades.push(trade);db.stockTrades=db.stockTrades.slice(-5000);saveDb();io.emit('stocks-updated');io.emit('user-updated',cleanUser(req.user));res.json({stock:stockSummary(stock,req.user,{history:true}),holding:stockHolding(req.user.id,stock.id),balance:roundBerry(req.user.strawberries),trade})});
+app.get('/api/stocks/:id/quote',auth,(req,res)=>{const stock=stockFor(req.params.id);if(!stock)return res.status(404).json({error:'Акция не найдена'});const qty=Math.trunc(Number(req.query.qty));if(!Number.isFinite(qty)||qty<1||qty>STOCK_MAX_ORDER)return res.status(400).json({error:`Количество: от 1 до ${STOCK_MAX_ORDER}`});const owned=stockHolding(req.user.id,stock.id);res.json({buy:stock.creatorId===req.user.id?null:stockTradeQuote(stock,'buy',qty),sell:qty<=owned?stockTradeQuote(stock,'sell',qty):null,owned,balance:roundBerry(req.user.strawberries)});});
+app.post('/api/stocks/:id/buy',auth,writeRateLimit,(req,res)=>{const stock=stockFor(req.params.id);if(!stock)return res.status(404).json({error:'Акция не найдена'});if(!req.user.stockWalletOpened)return res.status(403).json({error:'Сначала откройте кошелёк акций'});if(stock.creatorId===req.user.id)return res.status(400).json({error:'Создатель не может покупать собственную акцию'});const qty=Math.trunc(Number(req.body.qty));if(!Number.isFinite(qty)||qty<1||qty>STOCK_MAX_ORDER)return res.status(400).json({error:`Количество: от 1 до ${STOCK_MAX_ORDER}`});const before=Math.max(0,Math.trunc(Number(stock.circulating)||0)),quote=stockTradeQuote(stock,'buy',qty);req.user.strawberries=roundBerry(req.user.strawberries);if(req.user.strawberries+1e-9<quote.total)return res.status(400).json({error:`Не хватает клубничек: нужно ${quote.total.toFixed(2).replace('.',',')}🍓`});req.user.strawberries=roundBerry(req.user.strawberries-quote.total);setStockHolding(req.user.id,stock.id,stockHolding(req.user.id,stock.id)+qty);stock.circulating=before+qty;recordStockPoint(stock);const trade={id:crypto.randomUUID(),stockId:stock.id,userId:req.user.id,type:'buy',qty,total:quote.total,gross:quote.gross,fee:quote.fee,averagePrice:quote.averagePrice,priceBefore:quote.priceBefore,priceAfter:stockPrice(stock),createdAt:new Date().toISOString()};db.stockTrades.push(trade);db.stockTrades=db.stockTrades.slice(-5000);saveDb();io.emit('stocks-updated');io.emit('user-updated',cleanUser(req.user));res.json({stock:stockSummary(stock,req.user,{history:true}),holding:stockHolding(req.user.id,stock.id),balance:roundBerry(req.user.strawberries),trade});});
+app.post('/api/stocks/:id/sell',auth,writeRateLimit,(req,res)=>{const stock=stockFor(req.params.id);if(!stock)return res.status(404).json({error:'Акция не найдена'});if(!req.user.stockWalletOpened)return res.status(403).json({error:'Сначала откройте кошелёк акций'});const qty=Math.trunc(Number(req.body.qty)),owned=stockHolding(req.user.id,stock.id);if(!Number.isFinite(qty)||qty<1||qty>owned||qty>STOCK_MAX_ORDER)return res.status(400).json({error:`Можно продать от 1 до ${Math.min(owned,STOCK_MAX_ORDER)}`});const before=Math.max(0,Math.trunc(Number(stock.circulating)||0)),quote=stockTradeQuote(stock,'sell',qty);setStockHolding(req.user.id,stock.id,owned-qty);stock.circulating=Math.max(0,before-qty);req.user.strawberries=roundBerry((Number(req.user.strawberries)||0)+quote.total);recordStockPoint(stock);const trade={id:crypto.randomUUID(),stockId:stock.id,userId:req.user.id,type:'sell',qty,total:quote.total,gross:quote.gross,fee:quote.fee,averagePrice:quote.averagePrice,priceBefore:quote.priceBefore,priceAfter:stockPrice(stock),createdAt:new Date().toISOString()};db.stockTrades.push(trade);db.stockTrades=db.stockTrades.slice(-5000);saveDb();io.emit('stocks-updated');io.emit('user-updated',cleanUser(req.user));res.json({stock:stockSummary(stock,req.user,{history:true}),holding:stockHolding(req.user.id,stock.id),balance:roundBerry(req.user.strawberries),trade});});
 app.get('/api/admin/stocks',auth,adminOnly,(req,res)=>res.json({stocks:db.stocks.map(s=>stockSummary(s,req.user,{history:true}))}));
 app.patch('/api/admin/stocks/:id/verified',auth,adminOnly,(req,res)=>{const stock=stockFor(req.params.id);if(!stock)return res.status(404).json({error:'Акция не найдена'});stock.verified=!!req.body.verified;saveDb();io.emit('stocks-updated');res.json({stock:stockSummary(stock,req.user,{history:true})})});
 app.delete('/api/admin/stocks/:id',auth,adminOnly,(req,res)=>{const stock=stockFor(req.params.id);if(!stock)return res.status(404).json({error:'Акция не найдена'});const refunded=deleteStockWithRefund(stock);saveDb();io.emit('stocks-updated');io.emit('balances-updated');res.json({ok:true,refunded})});
@@ -693,10 +722,10 @@ io.on('connection',socket=>{
  const recipient=recipientId?db.users.find(x=>x.id===recipientId):null; if(recipientId&&!recipient)return; if(recipient){u.blocked||=[];recipient.blocked||=[];if(u.blocked.includes(recipient.id)||recipient.blocked.includes(u.id))return socket.emit('send-error',{error:'Сообщение не отправлено: один из пользователей заблокирован'});addMutualContact(u,recipient);}
     const reply=payload?.replyTo?db.messages.find(x=>x.id===payload.replyTo):null;
     let poll=null;if(type==='poll'){if(!isPremium(u))return socket.emit('send-error',{error:'Опросы доступны в Chatics Premium'});const q=String(payload?.poll?.question||text||'').trim().slice(0,180);const opts=(Array.isArray(payload?.poll?.options)?payload.poll.options:[]).map(x=>String(x||'').trim().slice(0,80)).filter(Boolean).slice(0,8);if(q.length<2||opts.length<2)return socket.emit('send-error',{error:'В опросе нужно минимум 2 варианта'});poll={question:q,options:opts.map(t=>({id:crypto.randomUUID(),text:t,voters:[]}))};}
-    const m={id:crypto.randomUUID(),userId:u.id,text:type==='poll'?'':text,type,mediaUrl:['text','poll'].includes(type)?'':mediaUrl,fileName:String(payload?.fileName||'').slice(0,120),mime:String(payload?.mime||'').slice(0,80),anonymous:!!payload?.anonymous&&!recipientId&&!channelId,chatType:recipientId?'private':'global',recipientId:recipientId||null,channelId,createdAt:new Date().toISOString(),viewers:[],reactions:{},hiddenFor:[],replyTo:reply&&canSeeMessage(reply,u)?reply.id:null,pinned:false,giftId:null,poll};
+    const m={id:crypto.randomUUID(),userId:u.id,text:type==='poll'?'':text,type,mediaUrl:['text','poll'].includes(type)?'':mediaUrl,fileName:String(payload?.fileName||'').slice(0,120),mime:String(payload?.mime||'').slice(0,80),anonymous:!!payload?.anonymous&&!recipientId&&!channelId,chatType:recipientId?'private':'global',recipientId:recipientId||null,channelId,createdAt:new Date().toISOString(),viewers:[],reactions:{},hiddenFor:[],replyTo:reply&&canSeeMessage(reply,u)?reply.id:null,pinned:false,giftId:null,poll,readAt:null};
     db.messages.push(m); if(db.messages.length>5000)db.messages=db.messages.slice(-5000); saveDb(); emitToViewers('message',m,viewer=>serializeMessage(m,viewer));
   });
-  socket.on('view-message',id=>{const m=db.messages.find(x=>x.id===id);if(!m||!canSeeMessage(m,u)||m.userId===u.id)return;m.viewers||=[];if(m.viewers.includes(u.id))return;m.viewers.push(u.id);saveDb();emitToViewers('message-views',m,{id:m.id,views:m.viewers.length});});
+  socket.on('view-message',id=>{const m=db.messages.find(x=>x.id===id);if(!m||!canSeeMessage(m,u)||m.userId===u.id)return;m.viewers||=[];let changed=false;if(!m.viewers.includes(u.id)){m.viewers.push(u.id);changed=true}if((m.chatType||'global')==='private'&&m.recipientId===u.id&&!m.readAt){m.readAt=new Date().toISOString();changed=true}if(!changed)return;saveDb();emitToViewers('message-views',m,{id:m.id,views:m.viewers.length,read:(m.chatType||'global')==='private'&&!!m.readAt,readAt:m.readAt||null});});
   socket.on('react-message',payload=>{const id=payload?.id,emoji=payload?.emoji;const allowed=['❤','👍','😂','💋','👀','🤔','🤢','😎','🤡','💩'];if(!allowed.includes(emoji))return;const m=db.messages.find(x=>x.id===id);if(!m||!canSeeMessage(m,u))return;m.reactions||={};m.reactions[emoji]||=[];const i=m.reactions[emoji].indexOf(u.id);if(i>=0)m.reactions[emoji].splice(i,1);else m.reactions[emoji].push(u.id);saveDb();emitToViewers('message-reactions',m,viewer=>({id:m.id,reactions:serializeMessage(m,viewer).reactions}));});
   socket.on('delete-message-self',id=>{const m=db.messages.find(x=>x.id===id);if(!m||!canSeeMessage(m,u))return;m.hiddenFor||=[];if(!m.hiddenFor.includes(u.id))m.hiddenFor.push(u.id);saveDb();socket.emit('message-hidden',id);});
   socket.on('delete-message-all',id=>{const i=db.messages.findIndex(x=>x.id===id);if(i<0)return;if(!u.isAdmin&&db.messages[i].userId!==u.id)return;db.messages.splice(i,1);saveDb();io.emit('message-deleted',id);});
@@ -706,7 +735,7 @@ io.on('connection',socket=>{
 });
 
 ensureAdmin().then(()=>server.listen(PORT,'0.0.0.0',()=>{
-  console.log(`205chating 0.2.0v running on port ${PORT}`);
+  console.log(`205chating 0.2.1v running on port ${PORT}`);
   if(IS_PROD && JWT_SECRET==='205chating-change-this-secret-in-production')console.warn('[security] Set JWT_SECRET in Railway variables before public launch.');
   if(IS_PROD)console.warn('[storage] data/db.json and uploads are local. Use persistent storage before scaling or accepting meaningful payment volume.');
 }));
